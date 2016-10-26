@@ -22,3 +22,10 @@ _testmain.go
 *.exe
 *.test
 *.prof
+
+# From thockin's go-build-template
+/bin
+/.go
+/.push-*
+/.container-*
+/.dockerfile-*
