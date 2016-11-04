@@ -1,0 +1,111 @@
+// Copyright 2016 The CDW All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package pb;
+
+// Vault is the proxy service that Mystique uses to manage
+// HashiCorp's Vault.
+service Vault {
+        // InitStatus retrieves the output from a GET to /sys/init
+        // This returns the initialization status of Vault.
+        rpc InitStatus(InitStatusRequest) returns (InitStatusResponse) {
+        }
+
+        // Init retrieves the output from a PUT to /sys/init
+        // This initializes a new Vault.  Vault must not have been previously initialized.
+//        rpc Init(InitRequest) returns (InitResponse) {
+ //       }
+
+        // SealStatus retrieves the output from a GET to /sys/seal-status
+        // Returns the seal status of the Vault.
+  //      rpc SealStatus(SealStatusRequest) returns (SealStatusResponse) {
+   //     }
+
+        // Unseal retrieves the output from a PUT to /sys/unseal
+        // Enter a single master key share to progress the unsealing of the Vault.
+        // If the threshold number of master key shares is reached, Vault will attempt to
+        // unseal the Vault. Otherwise, this API must be called multiple times until that
+        // threshold is met.
+    //    rpc Unseal(UnsealRequest) returns (UnsealResponse) {
+     //   }
+}
+
+// The request message is currently empty, as this request is empty on Vault.
+message InitStatusRequest {
+}
+
+// InitStatusResponse is the output from a GET to /sys/init
+message InitStatusResponse {
+        Status status = 1;
+        string err = 2;
+}
+
+message InitRequest {
+        uint32 secret_shares = 1;
+        uint32 secret_threshold = 2;
+        uint32 stored_shares = 3;
+        repeated string pgp_keys = 4;
+        uint32 recovery_shares = 5;
+        uint32 recovery_threshold = 6;
+        repeated string recovery_pgp_keys = 7;
+        string root_token_pgp_key = 8;
+}
+
+message InitResponse {
+        repeated string keys = 1;
+        repeated string keys_base64 = 2;
+        repeated string recovery_keys = 3;
+        repeated string recovery_keys_base64 = 4;
+        string root_token = 5;
+        string err = 6;
+}
+
+// The request message containing request name (Not really used but grpc requires it).
+message SealStatusRequest {
+  string name = 1;
+}
+
+message SealStatusResponse {
+        SealStatus seal_status = 1;
+        string err = 2;
+}
+
+message UnsealRequest {
+        string key = 1;
+        bool reset = 2;
+}
+
+message UnsealResponse {
+        SealStatus seal_status = 1;
+        string err = 2;
+}
+
+//       Iniitialization status of Vault
+message Status {
+        bool initialized = 1;
+}
+
+
+//       Seal status of Vault
+message SealStatus {
+        bool sealed = 1;
+        uint32 t = 2;
+        uint32 n = 3;
+        uint32 progress = 4;
+        string version = 5;
+        string cluster_name = 6;
+        string cluster_id = 7;
+}
