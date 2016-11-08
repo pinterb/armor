@@ -1,2 +1,2 @@
 # armor
-A Vault proxy service
+A proxy to Vault.

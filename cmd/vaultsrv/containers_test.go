@@ -1,4 +1,4 @@
-package vaultsvc
+package main
 
 import (
 	"bytes"
@@ -172,31 +172,32 @@ func DefaultVaultLocalConfig() (string, error) {
 	return string(ret), nil
 }
 
-func TestMain(m *testing.M) {
-	// start a vault container
-	containers, err := NewTestContainers()
-	if err != nil {
-		panic(err)
-	}
-
-	ret := m.Run()
-
-	// tests completed, stop the vault container
-	err = containers.CleanUp()
-	if err != nil {
-		panic(err)
-	}
-	os.Exit(ret)
-}
-
-func Test_InitStatus(t *testing.T) {
-	service := NewVaultService()
-	status, err := service.InitStatus(ctx)
-	if err != nil {
-		t.Fatalf("resp is error: %v", err)
-	}
-	assert(t, status == false, "expecting init status to be false")
-}
+//
+//func TestMain(m *testing.M) {
+//	// start a vault container
+//	containers, err := NewTestContainers()
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	ret := m.Run()
+//
+//	// tests completed, stop the vault container
+//	err = containers.CleanUp()
+//	if err != nil {
+//		panic(err)
+//	}
+//	os.Exit(ret)
+//}
+//
+//func Test_InitStatus(t *testing.T) {
+//	service := NewVaultService()
+//	status, err := service.InitStatus(ctx)
+//	if err != nil {
+//		t.Fatalf("resp is error: %v", err)
+//	}
+//	assert(t, status == false, "expecting init status to be false")
+//}
 
 // NewTestContainers sets up our test containers.
 func NewTestContainers() (*TestContainers, error) {
@@ -272,7 +273,7 @@ func NewTestContainers() (*TestContainers, error) {
 			Volumes:      vols,
 			Mounts:       mounts,
 			ExposedPorts: exposedVaultPort,
-			Env:          []string{fmt.Sprintf("VAULT_LOCAL_CONFIG=%s", genVaultConfig), "VAULT_CACERT=/vault/tls/intermediate_ca.pem"},
+			Env:          []string{fmt.Sprintf("VAULT_LOCAL_CONFIG=%s", genVaultConfig), "VAULT_CACERT=/vault/tls/ca-cert.pem"},
 			Cmd:          []string{"server", "-log-level=debug"},
 		},
 		HostConfig: &hostConfig,
@@ -349,7 +350,8 @@ func getDockerEndpoint() string {
 	} else {
 		endpoint = "unix:///var/run/docker.sock"
 	}
-	fmt.Printf("Connecting to docker on %s", endpoint)
+
+	fmt.Println("Connecting to docker on: ", endpoint)
 
 	return endpoint
 }

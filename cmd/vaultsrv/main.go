@@ -8,12 +8,10 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	lightstep "github.com/lightstep/lightstep-tracer-go"
 	stdopentracing "github.com/opentracing/opentracing-go"
-	zipkin "github.com/openzipkin/zipkin-go-opentracing"
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -21,12 +19,13 @@ import (
 	appdashot "sourcegraph.com/sourcegraph/appdash/opentracing"
 
 	"github.com/cdwlabs/armor/pb"
-	"github.com/cdwlabs/armor/pkg/vaultsvc"
-	"github.com/go-kit/kit/endpoint"
+	"github.com/cdwlabs/armor/pkg/proxy/endpoints"
+	vaultgrpc "github.com/cdwlabs/armor/pkg/proxy/grpc"
+	vaulthttp "github.com/cdwlabs/armor/pkg/proxy/http"
+	"github.com/cdwlabs/armor/pkg/proxy/service"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/prometheus"
-	"github.com/go-kit/kit/tracing/opentracing"
 )
 
 func main() {
@@ -34,7 +33,6 @@ func main() {
 		debugAddr      = flag.String("debug.addr", ":8080", "Debug and metrics listen address")
 		httpAddr       = flag.String("http.addr", ":8081", "HTTP listen address")
 		grpcAddr       = flag.String("grpc.addr", ":8082", "gRPC (HTTP) listen address")
-		zipkinAddr     = flag.String("zipkin.addr", "", "Enable Zipkin tracing via a Kafka server host:port")
 		appdashAddr    = flag.String("appdash.addr", "", "Enable Appdash tracing via an Appdash server host:port")
 		lightstepToken = flag.String("lightstep.token", "", "Enable LightStep tracing via a LightStep access token")
 	)
@@ -76,7 +74,8 @@ func main() {
 	{
 		// Transport level metrics
 		duration = prometheus.NewSummaryFrom(stdprometheus.SummaryOpts{
-			Namespace: "addsvc",
+			Namespace: "mystique",
+			Subsystem: "vault_proxy",
 			Name:      "request_duration_ns",
 			Help:      "Request duration in nanoseconds.",
 		}, []string{"method", "success"})
@@ -86,25 +85,7 @@ func main() {
 	// Tracing domain.
 	var tracer stdopentracing.Tracer
 	{
-		if *zipkinAddr != "" {
-			logger := log.NewContext(logger).With("tracer", "Zipkin")
-			logger.Log("addr", *zipkinAddr)
-			collector, err := zipkin.NewKafkaCollector(
-				strings.Split(*zipkinAddr, ","),
-				zipkin.KafkaLogger(logger),
-			)
-			if err != nil {
-				logger.Log("err", err)
-				os.Exit(1)
-			}
-			tracer, err = zipkin.NewTracer(
-				zipkin.NewRecorder(collector, false, "localhost:80", "addsvc"),
-			)
-			if err != nil {
-				logger.Log("err", err)
-				os.Exit(1)
-			}
-		} else if *appdashAddr != "" {
+		if *appdashAddr != "" {
 			logger := log.NewContext(logger).With("tracer", "Appdash")
 			logger.Log("addr", *appdashAddr)
 			tracer = appdashot.NewTracer(appdash.NewRemoteCollector(*appdashAddr))
@@ -123,27 +104,9 @@ func main() {
 	}
 
 	// Business domain.
-	var service vaultsvc.VaultService
-	{
-		service = vaultsvc.NewVaultService()
-		service = vaultsvc.ServiceLoggingMiddleware(logger)(service)
-		service = vaultsvc.ServiceInstrumentingMiddleware(requestCount, requestLatency)(service)
-	}
-
+	svc := service.New(logger, requestCount, requestLatency)
 	// Endpoint domain.
-	var initStatusEndpoint endpoint.Endpoint
-	{
-		initStatusDuration := duration.With("method", "InitStatus")
-		initStatusLogger := log.NewContext(logger).With("method", "InitStatus")
-
-		initStatusEndpoint = vaultsvc.MakeInitStatusEndpoint(service)
-		initStatusEndpoint = opentracing.TraceServer(tracer, "InitStatus")(initStatusEndpoint)
-		initStatusEndpoint = vaultsvc.EndpointInstrumentingMiddleware(initStatusDuration)(initStatusEndpoint)
-		initStatusEndpoint = vaultsvc.EndpointLoggingMiddleware(initStatusLogger)(initStatusEndpoint)
-	}
-	endpoints := vaultsvc.Endpoints{
-		InitStatusEndpoint: initStatusEndpoint,
-	}
+	eps := endpoints.New(svc, logger, duration, tracer)
 
 	// Mechanical domain.
 	errc := make(chan error)
@@ -166,18 +129,19 @@ func main() {
 		m.Handle("/debug/pprof/profile", http.HandlerFunc(pprof.Profile))
 		m.Handle("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
 		m.Handle("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
-		m.Handle("/metrics", stdprometheus.Handler())
+		//		m.Handle("/metrics", stdprometheus.Handler())
 
 		logger.Log("addr", *debugAddr)
 		errc <- http.ListenAndServe(*debugAddr, m)
 	}()
 
+	// Mechanical domain.
 	// HTTP transport.
 	go func() {
 		logger := log.NewContext(logger).With("transport", "HTTP")
-		h := vaultsvc.MakeHTTPHandler(ctx, endpoints, tracer, logger)
+		mux := vaulthttp.NewHandler(ctx, eps, tracer, logger)
 		logger.Log("addr", *httpAddr)
-		errc <- http.ListenAndServe(*httpAddr, h)
+		errc <- http.ListenAndServe(*httpAddr, mux)
 	}()
 
 	// gRPC transport.
@@ -190,7 +154,7 @@ func main() {
 			return
 		}
 
-		srv := vaultsvc.MakeGRPCServer(ctx, endpoints, tracer, logger)
+		srv := vaultgrpc.NewHandler(ctx, eps, tracer, logger)
 		s := grpc.NewServer()
 		pb.RegisterVaultServer(s, srv)
 

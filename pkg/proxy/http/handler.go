@@ -1,4 +1,4 @@
-package vaultsvc
+package http
 
 // this file provides server-side bindings for the HTTP transport.
 // It utilizes the transport/http.Server.
@@ -13,14 +13,17 @@ import (
 	stdopentracing "github.com/opentracing/opentracing-go"
 	"golang.org/x/net/context"
 
+	"github.com/cdwlabs/armor/pkg/proxy/endpoints"
+	"github.com/cdwlabs/armor/pkg/proxy/service"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/tracing/opentracing"
 	httptransport "github.com/go-kit/kit/transport/http"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// MakeHTTPHandler returns a handler that makes a set of endpoints available on
+// NewHandler returns a handler that makes a set of endpoints available on
 // predefined paths.
-func MakeHTTPHandler(ctx context.Context, endpoints Endpoints, tracer stdopentracing.Tracer, logger log.Logger) http.Handler {
+func NewHandler(ctx context.Context, endpoints endpoints.Endpoints, tracer stdopentracing.Tracer, logger log.Logger) http.Handler {
 	options := []httptransport.ServerOption{
 		httptransport.ServerErrorEncoder(errorEncoder),
 		httptransport.ServerErrorLogger(logger),
@@ -29,30 +32,35 @@ func MakeHTTPHandler(ctx context.Context, endpoints Endpoints, tracer stdopentra
 	m.Handle("/init/status", httptransport.NewServer(
 		ctx,
 		endpoints.InitStatusEndpoint,
-		DecodeHTTPInitStatusRequest,
-		EncodeHTTPGenericResponse,
+		DecodeInitStatusRequest,
+		EncodeGenericResponse,
 		append(options, httptransport.ServerBefore(opentracing.FromHTTPRequest(tracer, "InitStatus", logger)))...,
 	))
+
+	m.Handle("/metrics", promhttp.Handler())
 	return m
 }
 
 func errorEncoder(_ context.Context, err error, w http.ResponseWriter) {
-	code := http.StatusInternalServerError
-	msg := err.Error()
+	w.WriteHeader(err2code(err))
+	json.NewEncoder(w).Encode(errorWrapper{Error: err.Error()})
+}
 
-	if e, ok := err.(httptransport.Error); ok {
-		msg = e.Err.Error()
+func err2code(err error) int {
+	switch err {
+	case service.ErrExample:
+		return http.StatusBadRequest
+	}
+	switch e := err.(type) {
+	case httptransport.Error:
 		switch e.Domain {
 		case httptransport.DomainDecode:
-			code = http.StatusBadRequest
-
+			return http.StatusBadRequest
 		case httptransport.DomainDo:
-			code = http.StatusBadRequest
+			return err2code(e.Err)
 		}
 	}
-
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(errorWrapper{Error: msg})
+	return http.StatusInternalServerError
 }
 
 func errorDecoder(r *http.Response) error {
@@ -67,32 +75,32 @@ type errorWrapper struct {
 	Error string `json:"error"`
 }
 
-// DecodeHTTPInitStatusRequest is a transport/http.DecodeRequestFunc that
-// decodes a JSON-encoded initStatus request from the HTTP request body. Primarily
-// useful in a server.
-func DecodeHTTPInitStatusRequest(_ context.Context, r *http.Request) (interface{}, error) {
-	var req initStatusRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
-	return req, err
+// DecodeInitStatusRequest is a transport/http.DecodeRequestFunc that is
+// basically a noop.  Normally, this method's default behavior is to decode
+// a JSON-encoded request from the HTTP request body. Primarily useful in
+// a server.
+func DecodeInitStatusRequest(_ context.Context, r *http.Request) (interface{}, error) {
+	var req = &endpoints.InitStatusRequest{}
+	return req, nil
 }
 
-// DecodeHTTPInitStatusResponse is a transport/http.DecodeResponseFunc that
+// DecodeInitStatusResponse is a transport/http.DecodeResponseFunc that
 // decodes a JSON-encoded initStatus response from the HTTP response body. If the
 // response has a non-200 status code, we will interpret that as an error and
 // attempt to decode the specific error message from the response body.
 // Primarily useful in a client.
-func DecodeHTTPInitStatusResponse(_ context.Context, r *http.Response) (interface{}, error) {
+func DecodeInitStatusResponse(_ context.Context, r *http.Response) (interface{}, error) {
 	if r.StatusCode != http.StatusOK {
 		return nil, errorDecoder(r)
 	}
-	var resp initStatusResponse
+	var resp endpoints.InitStatusResponse
 	err := json.NewDecoder(r.Body).Decode(&resp)
 	return resp, err
 }
 
-// EncodeHTTPGenericRequest is a transport/http.EncodeRequestFunc that
+// EncodeGenericRequest is a transport/http.EncodeRequestFunc that
 // JSON-encodes any request to the request body. Primarily useful in a client.
-func EncodeHTTPGenericRequest(_ context.Context, r *http.Request, request interface{}) error {
+func EncodeGenericRequest(_ context.Context, r *http.Request, request interface{}) error {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(request); err != nil {
 		return err
@@ -101,9 +109,13 @@ func EncodeHTTPGenericRequest(_ context.Context, r *http.Request, request interf
 	return nil
 }
 
-// EncodeHTTPGenericResponse is a transport/http.EncodeResponseFunc that
+// EncodeGenericResponse is a transport/http.EncodeResponseFunc that
 // encodes the response as JSON to the response writer. Primarily useful in
 // a server.
-func EncodeHTTPGenericResponse(_ context.Context, w http.ResponseWriter, response interface{}) error {
+func EncodeGenericResponse(ctx context.Context, w http.ResponseWriter, response interface{}) error {
+	if f, ok := response.(endpoints.Failer); ok && f.Failed() != nil {
+		errorEncoder(ctx, f.Failed(), w)
+		return nil
+	}
 	return json.NewEncoder(w).Encode(response)
 }
