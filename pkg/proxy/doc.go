@@ -1,4 +1,4 @@
-// This package is a proxy to HashiCorp's Vault. A client library is
+// Package proxy acts as a proxy to HashiCorp's Vault. A client library is
 // available in the client subdirectory.  A server binary is available in
-// cmd/vaultsrv.
+// cmd/armor.
 package proxy

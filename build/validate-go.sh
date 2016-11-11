@@ -46,6 +46,7 @@ gometalinter \
   --enable golint \
   --vendor \
   --skip proto \
+  --skip pb \
   ./... || :
 
 exit $exit_code

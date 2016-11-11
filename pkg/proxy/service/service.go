@@ -12,6 +12,7 @@ import (
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/metrics"
 	vaultapi "github.com/hashicorp/vault/api"
+	"github.com/spf13/viper"
 	"golang.org/x/net/context"
 )
 
@@ -23,6 +24,7 @@ type Service interface {
 	//	Unseal(ctx context.Context, key string) (string, error)
 }
 
+// New creates a new Service instance
 func New(logger log.Logger, requestCount metrics.Counter, requestLatency metrics.Histogram) Service {
 	var svc Service
 	{
@@ -77,17 +79,23 @@ func (s proxyService) InitStatus(_ context.Context) (bool, error) {
 	return inited, err
 }
 
-// NewVaultClient creates a vault client based on DefaultConfig. In practice
-// this means that the environment variables required to connect to vault must
-// be set correctly or the handshake with Vault can never happen.
+// NewVaultClient creates a Vault client by starting with Vault's DefaultConfig.
+// Next, it checks if necessary flags were set in Armor (via viper) and
+// finally, checks for existence of same environment variables as the Vault
+// client CLI (e.g. VAULT_ADDR).
 func NewVaultClient() (*vaultapi.Client, error) {
-	// Using same environment variables as Vault client CLI
 	tlsConfig, err := DefaultTLSConfig()
 	if err != nil {
 		return nil, err
 	}
 
 	config := vaultapi.DefaultConfig()
+	if viper.IsSet("vaultAddr") && viper.GetString("vaultAddr") != "" {
+		config.Address = viper.GetString("vaultAddr")
+	} else if v := os.Getenv("VAULT_ADDR"); v != "" {
+		config.Address = v
+	}
+
 	config.ConfigureTLS(tlsConfig)
 	client, err := vaultapi.NewClient(config)
 	if err != nil {
@@ -97,27 +105,40 @@ func NewVaultClient() (*vaultapi.Client, error) {
 	return client, nil
 }
 
-// DefaultTLSConfig builds a Vault client-compatiable TLS configuration. It
-// uses the same environment variables as the Vault client CLI.
+// DefaultTLSConfig builds a Vault client-compatible TLS configuration. It
+// first checks if necessary flags were set in Armor (via viper) and
+// secondarily checks for existence of same environment variables as the Vault
+// client CLI (e.g. VAULT_CACERT).
 func DefaultTLSConfig() (*vaultapi.TLSConfig, error) {
 	config := &vaultapi.TLSConfig{}
-	if v := os.Getenv("VAULT_CACERT"); v != "" {
+
+	if viper.IsSet("vaultCACert") && viper.GetString("vaultCACert") != "" {
+		config.CACert = viper.GetString("vaultCACert")
+	} else if v := os.Getenv("VAULT_CACERT"); v != "" {
 		config.CACert = v
 	}
 
-	if v := os.Getenv("VAULT_CAPATH"); v != "" {
+	if viper.IsSet("vaultCAPath") && viper.GetString("vaultCAPath") != "" {
+		config.CAPath = viper.GetString("vaultCAPath")
+	} else if v := os.Getenv("VAULT_CAPATH"); v != "" {
 		config.CAPath = v
 	}
 
-	if v := os.Getenv("VAULT_CLIENT_CERT"); v != "" {
+	if viper.IsSet("vaultClientCert") && viper.GetString("vaultClientCert") != "" {
+		config.ClientCert = viper.GetString("vaultClientCert")
+	} else if v := os.Getenv("VAULT_CLIENT_CERT"); v != "" {
 		config.ClientCert = v
 	}
 
-	if v := os.Getenv("VAULT_CLIENT_KEY"); v != "" {
+	if viper.IsSet("vaultClientKey") && viper.GetString("vaultClientKey") != "" {
+		config.ClientKey = viper.GetString("vaultClientKey")
+	} else if v := os.Getenv("VAULT_CLIENT_KEY"); v != "" {
 		config.ClientKey = v
 	}
 
-	if v := os.Getenv("VAULT_SKIP_VERIFY"); v != "" {
+	if viper.IsSet("vaultTLSSkipVerify") {
+		config.Insecure = viper.GetBool("vaultTLSSkipVerify")
+	} else if v := os.Getenv("VAULT_SKIP_VERIFY"); v != "" {
 		var err error
 		var envInsecure bool
 		envInsecure, err = strconv.ParseBool(v)

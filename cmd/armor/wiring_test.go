@@ -89,5 +89,5 @@ func TestGRPCWiring(t *testing.T) {
 	client := grpcclient.New(conn, opentracing.GlobalTracer(), log.NewNopLogger())
 	status, err := client.InitStatus(context.Background())
 	ok(t, err)
-	assert(t, status == false, "expecting InitStatus to return false")
+	assert(t, !status, "expecting InitStatus to return false")
 }

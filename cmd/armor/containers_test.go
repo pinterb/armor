@@ -7,6 +7,7 @@ import (
 	docker "github.com/fsouza/go-dockerclient"
 	vaultapi "github.com/hashicorp/vault/api"
 	"github.com/pborman/uuid"
+	"github.com/spf13/viper"
 	"golang.org/x/net/context"
 	"io/ioutil"
 	"os"
@@ -172,60 +173,38 @@ func DefaultVaultLocalConfig() (string, error) {
 	return string(ret), nil
 }
 
-//
-//func TestMain(m *testing.M) {
-//	// start a vault container
-//	containers, err := NewTestContainers()
-//	if err != nil {
-//		panic(err)
-//	}
-//
-//	ret := m.Run()
-//
-//	// tests completed, stop the vault container
-//	err = containers.CleanUp()
-//	if err != nil {
-//		panic(err)
-//	}
-//	os.Exit(ret)
-//}
-//
-//func Test_InitStatus(t *testing.T) {
-//	service := NewVaultService()
-//	status, err := service.InitStatus(ctx)
-//	if err != nil {
-//		t.Fatalf("resp is error: %v", err)
-//	}
-//	assert(t, status == false, "expecting init status to be false")
-//}
-
 // NewTestContainers sets up our test containers.
 func NewTestContainers() (*TestContainers, error) {
 	client, err := docker.NewClient(getDockerEndpoint())
 	if err != nil {
-		fmt.Errorf("Failed to create docker client: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("Failed to create docker client: %v", err)
 	}
 
 	err = client.Ping()
 	if err != nil {
-		fmt.Errorf("Failed to ping docker w/client: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("Failed to ping docker w/client: %v", err)
 	}
 
 	// Create a temporary directory for vault data
 	dataDir, err := ioutil.TempDir("", "vaultdata")
 	if err != nil {
-		fmt.Errorf("Failed to temp directory for vault's data directory: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("Failed to temp directory for vault's data directory: %v", err)
 	}
 
 	cwd, _ := os.Getwd()
-	os.Setenv(vaultapi.EnvVaultClientCert, cwd+"/test-fixtures/keys/client.pem")
-	os.Setenv(vaultapi.EnvVaultClientKey, cwd+"/test-fixtures/keys/client-key.pem")
-	os.Setenv(vaultapi.EnvVaultCACert, cwd+"/test-fixtures/keys/ca-cert.pem")
+	// Don't think client certs are necessary...especially for testing(?)
+	//os.Setenv(vaultapi.EnvVaultClientCert, cwd+"/test-fixtures/keys/client.pem")
+	//os.Setenv(vaultapi.EnvVaultClientKey, cwd+"/test-fixtures/keys/client-key.pem")
+
+	//	os.Setenv(vaultapi.EnvVaultCACert, cwd+"/test-fixtures/keys/ca-cert.pem")
+	viper.Set("vaultCACert", cwd+"/test-fixtures/keys/ca-cert.pem")
+
 	//os.Setenv(vaultapi.EnvVaultCAPath, cwd+"/test-fixtures/keys")
+	viper.Set("vaultCAPath", cwd+"/test-fixtures/keys")
+
 	//os.Setenv(vaultapi.EnvVaultInsecure, "true")
+	//viper.Set("vaultTLSSkipVerify", true)
+
 	os.Setenv(vaultapi.EnvVaultMaxRetries, "5")
 
 	// Define our Vault container host config...
@@ -246,6 +225,7 @@ func NewTestContainers() (*TestContainers, error) {
 	capadd := make([]string, 1)
 	capadd[0] = "IPC_LOCK"
 
+	//viper.Set("vaultAddr", "https://127.0.0.1:8200")
 	portBindings := map[docker.Port][]docker.PortBinding{
 		"8200/tcp": {{HostIP: "0.0.0.0", HostPort: "8200"}}}
 
@@ -263,6 +243,7 @@ func NewTestContainers() (*TestContainers, error) {
 		"8200/tcp": {}}
 
 	genVaultConfig, err := VaultLocalConfigGen()
+	fmt.Printf("generated vault config ===>%s<===", genVaultConfig)
 
 	createOpts := docker.CreateContainerOptions{
 		Name: containerName,
@@ -281,14 +262,12 @@ func NewTestContainers() (*TestContainers, error) {
 
 	cont, err := client.CreateContainer(createOpts)
 	if err != nil {
-		fmt.Errorf("Failed to create Vault test container: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("Failed to create Vault test container: %v", err)
 	}
 
 	err = client.StartContainer(cont.ID, nil)
 	if err != nil {
-		fmt.Errorf("Failed to start Vault test container: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("Failed to start Vault test container: %v", err)
 	}
 
 	return &TestContainers{
@@ -304,8 +283,7 @@ func (containers *TestContainers) CleanUp() error {
 	defer os.RemoveAll(containers.vaultDataDir)
 	err := containers.client.StopContainer(containers.vaultID, 10)
 	if err != nil {
-		fmt.Errorf("Failed to stop container: %v", err)
-		return err
+		return fmt.Errorf("Failed to stop container: %v", err)
 	}
 
 	// Reading logs from container and sending them to buf.
@@ -323,8 +301,7 @@ func (containers *TestContainers) CleanUp() error {
 			Stderr:       true,
 		})
 		if err != nil {
-			fmt.Errorf("Failed to attach to stopped container: %v", err)
-			return err
+			return fmt.Errorf("Failed to attach to stopped container: %v", err)
 		}
 		fmt.Println(buf.String())
 		fmt.Println("")
@@ -336,8 +313,7 @@ func (containers *TestContainers) CleanUp() error {
 		opts := docker.RemoveContainerOptions{ID: containers.vaultID}
 		err = containers.client.RemoveContainer(opts)
 		if err != nil {
-			fmt.Errorf("Failed to remove container: %v", err)
-			return err
+			return fmt.Errorf("Failed to remove container: %v", err)
 		}
 	}
 	return nil

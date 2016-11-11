@@ -21,6 +21,7 @@ import (
 	httptransport "github.com/go-kit/kit/transport/http"
 )
 
+// New creates http client
 func New(instance string, tracer stdopentracing.Tracer, logger log.Logger) (vaultservice.Service, error) {
 	if !strings.HasPrefix(instance, "http") {
 		instance = "http://" + instance
