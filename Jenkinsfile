@@ -32,13 +32,21 @@ node {
   env.DEBUG_DEPLOY = false
 
   // debugging helm deployments
-  //
-  // tag image with version, and branch-commit-id
-  //
-  // compile tag list
-  //
+  if (env.DEBUG_DEPLOY) {
+    println "Runing helm tests"
+    pipeline.kubectlTest()
+    pipeline.helmConfig()
+  }
 
-  stage ('preparation') {
+  def acct = pipeline.getContainerRepoAcct(config)
+
+  // tag image with version, and branch-commit-id
+  def image_tags_map = pipeline.getContainerTags(config)
+
+  // compile tag list
+  def image_tags_list = pipeline.getMapValues(image_tags_map)
+
+stage ('preparation') {
     // Print env -- debugging
     sh "env | sort"
 
