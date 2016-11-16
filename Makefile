@@ -18,7 +18,7 @@
 PROJECT := cdwlabs/armor
 
 # The binary to build (just the basename).
-BIN := vaultsrv
+BIN := armor
 
 # This repo's root import path (under GOPATH).
 PKG := github.com/$(PROJECT)
