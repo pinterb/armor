@@ -1,0 +1,23 @@
+{
+  "app": {
+    "name": "armor",
+    "replicas": "1",
+    "cpu": "10m",
+    "memory": "128Mi"
+  },
+  "container_repo": {
+    "host": "docker.io",
+    "master_acct": "pinterb",
+    "alt_acct": "pinterb",
+    "jenkins_creds_id": "docker_creds",
+    "repo": "croc-hunter",
+    "dockeremail": ".",
+    "dockerfile": "./"
+  },
+  "pipeline": {
+      "enabled": true,
+      "library": {
+        "branch": "master"
+      }
+  }
+}
