@@ -46,7 +46,7 @@ node {
   // compile tag list
   def image_tags_list = pipeline.getMapValues(image_tags_map)
 
-stage ('preparation') {
+  stage ('preparation') {
     // Print env -- debugging
     sh "env | sort"
 
