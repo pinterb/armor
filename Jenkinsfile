@@ -39,7 +39,9 @@ node {
   //
 
   stage ('preparation') {
-    sh "whoami"
+    // Print env -- debugging
+    sh "env | sort"
+
     sh "mkdir -p ${workDir}"
     sh "cp -R ${pwd}/* ${workDir}"
     sh "go version"
