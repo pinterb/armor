@@ -13,6 +13,9 @@ node {
 
   // read in required jenkins pipeline configuration values
   def inputFile = readFile('Jenkinsfile.json')
+  // NOTE: add the following to jenkins 'In-process Script Approval':
+  //   method groovy.json.JsonSlurperClassic parseText java.lang.String
+  //   new groovy.json.JsonSlurperClassic
   def config = new groovy.json.JsonSlurperClassic().parseText(inputFile)
   println "pipeline config ==> ${config}"
 
@@ -36,6 +39,7 @@ node {
   //
 
   stage ('preparation') {
+    sh "whoami"
     sh "mkdir -p ${workDir}"
     sh "cp -R ${pwd}/* ${workDir}"
     sh "go version"
