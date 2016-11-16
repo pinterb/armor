@@ -38,5 +38,6 @@ node {
   stage ('preparation') {
     sh "mkdir -p ${workDir}"
     sh "cp -R ${pwd}/* ${workDir}"
+    sh "echo golang: $(which go)"
   }
 }
