@@ -52,6 +52,14 @@ node {
 
     sh "mkdir -p ${workDir}"
     sh "cp -R ${pwd}/* ${workDir}"
+    sh "docker version"
     sh "go version"
   }
+
+  stage ('compile') {
+
+    sh "cd ${workDir}"
+    sh "make build"
+  }
+
 }

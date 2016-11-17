@@ -137,16 +137,18 @@ version: ## Display various versions
 	@echo "Build tag:       ${DOCKER_VERSION}"
 	@echo "Image Registry:  ${DOCKER_REGISTRY}"
 
+#	    -u $$(id -u):$$(id -g)                                             \
+
 test: build-dirs
 	@docker run                                                            \
 	    -ti                                                                \
-	    -u $$(id -u):$$(id -g)                                             \
 	    -v $$(pwd)/.go:/go                                                 \
 	    -v $$(pwd):/go/src/$(PKG)                                          \
 	    -v $$(pwd)/bin/$(ARCH):/go/bin                                     \
 	    -v $$(pwd)/.go/std/$(ARCH):/usr/local/go/pkg/linux_$(ARCH)_static  \
 			-v /var/run/docker.sock:/var/run/docker.sock                       \
 	    -w /go/src/$(PKG)                                                  \
+	    --net=host                                                         \
 	    $(BUILD_IMAGE)                                                     \
 	    /bin/sh -c "                                                       \
 	        ./build/test.sh $(SRC_DIRS)                                    \

@@ -23,6 +23,7 @@ export CGO_ENABLED=0
 TARGETS=$(for d in "$@"; do echo ./$d/...; done)
 
 echo "Running tests:"
+echo "whoami: $(whoami)"
 go test -i -installsuffix "static" ${TARGETS}
 go test -installsuffix "static" ${TARGETS}
 echo
