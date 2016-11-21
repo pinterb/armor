@@ -33,7 +33,11 @@ node {
 
   // debugging helm deployments
   if (env.DEBUG_DEPLOY) {
-    println "Runing helm tests"
+    println "Display Docker version"
+    sh "docker version"
+    println "Display Golang version"
+    sh "go version"
+    println "Running helm tests"
     pipeline.kubectlTest()
     pipeline.helmConfig()
   }
@@ -48,18 +52,16 @@ node {
 
   stage ('preparation') {
     // Print env -- debugging
-    sh "env | sort"
+    //sh "env | sort"
 
     sh "mkdir -p ${workDir}"
     sh "cp -R ${pwd}/* ${workDir}"
-    sh "docker version"
-    sh "go version"
   }
 
   stage ('compile') {
 
     sh "cd ${workDir}"
-    sh "make build"
+    sh "make dev-build"
   }
 
 }
