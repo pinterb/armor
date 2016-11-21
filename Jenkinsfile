@@ -59,9 +59,12 @@ node {
   }
 
   stage ('compile') {
-
     sh "cd ${workDir}"
     sh "make dev-build"
+  }
+
+  stage ('test') {
+    sh "make dev-test"
   }
 
 }
