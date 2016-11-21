@@ -10,7 +10,7 @@
     "master_acct": "pinterb",
     "alt_acct": "pinterb",
     "jenkins_creds_id": "docker_creds",
-    "repo": "croc-hunter",
+    "repo": "armor",
     "dockeremail": ".",
     "dockerfile": "./"
   },
