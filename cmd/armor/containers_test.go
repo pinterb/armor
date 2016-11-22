@@ -260,11 +260,20 @@ func NewTestContainers() (*TestContainers, error) {
 		HostConfig: &hostConfig,
 	}
 
+	// Pull the vault image
+	opts := docker.PullImageOptions{Repository: VaultImageName, Tag: VaultImageTag, OutputStream: os.Stdout}
+	err = client.PullImage(opts, docker.AuthConfiguration{})
+	if err != nil {
+		return nil, fmt.Errorf("Failed to pull Vault test image: %v", err)
+	}
+
+	// Create the container
 	cont, err := client.CreateContainer(createOpts)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create Vault test container: %v", err)
 	}
 
+	// Start the container
 	err = client.StartContainer(cont.ID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to start Vault test container: %v", err)
