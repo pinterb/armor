@@ -26,21 +26,27 @@ service Vault {
 
         // Init retrieves the output from a PUT to /sys/init
         // This initializes a new Vault.  Vault must not have been previously initialized.
-//        rpc Init(InitRequest) returns (InitResponse) {
- //       }
+        rpc Init(InitRequest) returns (InitResponse) {
+        }
 
         // SealStatus retrieves the output from a GET to /sys/seal-status
         // Returns the seal status of the Vault.
-  //      rpc SealStatus(SealStatusRequest) returns (SealStatusResponse) {
-   //     }
+        rpc SealStatus(SealStatusRequest) returns (SealStatusResponse) {
+        }
 
         // Unseal retrieves the output from a PUT to /sys/unseal
         // Enter a single master key share to progress the unsealing of the Vault.
         // If the threshold number of master key shares is reached, Vault will attempt to
         // unseal the Vault. Otherwise, this API must be called multiple times until that
         // threshold is met.
-    //    rpc Unseal(UnsealRequest) returns (UnsealResponse) {
-     //   }
+        rpc Unseal(UnsealRequest) returns (UnsealResponse) {
+        }
+
+        // Configure applies a set of configuration files to Vault. By
+        // convention, these are json files located at some URL (e.g. git or
+        // aws s3).
+        rpc Configure(ConfigureRequest) returns (ConfigureResponse) {
+        }
 }
 
 // The request message is currently empty, as this request is empty on Vault.
@@ -73,9 +79,8 @@ message InitResponse {
         string err = 6;
 }
 
-// The request message containing request name (Not really used but grpc requires it).
+// The request message is currently empty, as this request is empty on Vault.
 message SealStatusRequest {
-  string name = 1;
 }
 
 message SealStatusResponse {
@@ -108,4 +113,43 @@ message SealStatus {
         string version = 5;
         string cluster_name = 6;
         string cluster_id = 7;
+}
+
+message ConfigureRequest {
+        string url = 1;
+        string token = 2;
+}
+
+message ConfigureResponse {
+        ConfigStatus config_status = 1;
+        string err = 2;
+}
+
+message ConfigStatus {
+        string config_id = 1;
+        map<string, MountOutput> mounts = 2;
+        map<string, AuthMountOutput> auths = 3;
+        repeated string policies = 4;
+}
+
+message MountOutput {
+        string type = 1;
+        string description = 2;
+        MountConfigOutput config = 3;
+}
+
+message MountConfigOutput {
+        uint32 default_lease_ttl = 1;
+        uint32 max_lease_ttl = 2;
+}
+
+message AuthMountOutput {
+        string type = 1;
+        string description = 2;
+        AuthConfigOutput config = 3;
+}
+
+message AuthConfigOutput {
+        uint32 default_lease_ttl = 1;
+        uint32 max_lease_ttl = 2;
 }

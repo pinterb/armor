@@ -1,0 +1,8 @@
+{
+  "type": "aws",
+  "description": "AWS keys for project x",
+  "config": {
+    "default_lease_ttl": "8",
+    "max_lease_ttl": "24"
+  }
+}

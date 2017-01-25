@@ -1,0 +1,115 @@
+#!/usr/bin/groovy
+
+// Load pipeline functions
+@Library('github.com/pinterb/jenkins-pipeline@master')
+def pipeline = new io.clusterops.Pipeline()
+
+// Lets define a unique label for this build.
+def label = "buildpod.${env.JOB_NAME}.${env.BUILD_NUMBER}".replace('-', '_').replace('/', '_')
+
+// Lets create a new pod template with a custom jnlp and vault containers, that uses that label.
+podTemplate(label: label, containers: [
+    containerTemplate(
+        name: 'jnlp',
+        image: 'pinterb/jenkins-jnlp-slave:2.62',
+        command: '/usr/local/bin/start.sh',
+        args: '${computer.jnlpmac} ${computer.name}',
+        ttyEnabled: false,
+        privileged: false,
+        alwaysPullImage: false,
+        workingDir: '/home/jenkins',
+        resourceRequestCpu: '50m',
+        resourceLimitCpu: '100m',
+        resourceRequestMemory: '100Mi',
+        resourceLimitMemory: '200Mi')
+],
+volumes: [
+    emptyDirVolume(mountPath: '/vault/file', memory: false),
+    hostPathVolume(mountPath: '/var/run/docker.sock', hostPath: '/var/run/docker.sock'),
+    secretVolume(mountPath: '/vault/tls', secretName: 'testcerts')
+]) {
+
+    // Lets use pod template (refernce by label)
+    node(label) {
+      def goPath = "/go"
+      def workDir = "${goPath}/src/github.com/cdwlabs/armor"
+      def pwd = pwd()
+
+      checkout scm
+
+      // read in required jenkins pipeline configuration values
+      def inputFile = readFile('Jenkinsfile.json')
+      // NOTE: add the following to jenkins 'In-process Script Approval':
+      //   method groovy.json.JsonSlurperClassic parseText java.lang.String
+      //   new groovy.json.JsonSlurperClassic
+      def config = new groovy.json.JsonSlurperClassic().parseText(inputFile)
+      println "pipeline config ==> ${config}"
+
+      // continue only if pipeline enabled
+      if (!config.pipeline.enabled) {
+        println "pipeline disabled...quitting build now"
+        return
+      }
+
+      // set additional git envars for image tagging
+      pipeline.gitEnvVars()
+
+      // used to debug deployment setup
+      env.DEBUG_DEPLOY = false
+
+      // debugging helm deployments
+      if (env.DEBUG_DEPLOY.equals("true")) {
+        println "Display Docker version"
+        sh "docker version"
+
+        println "Display Golang version"
+        sh "go version"
+
+        println "Running helm tests"
+        pipeline.kubectlTest()
+        pipeline.helmConfig()
+      }
+
+      def acct = pipeline.getContainerRepoAcct(config)
+
+      // tag image with version, and branch-commit-id
+      def image_tags_map = pipeline.getContainerTags(config)
+
+      // compile tag list
+      def image_tags_list = pipeline.getMapValues(image_tags_map)
+
+      stage ('preparation') {
+        sh "mkdir -p ${workDir}"
+        sh "cp -R ${pwd}/* ${workDir}"
+      }
+
+      stage ('compile') {
+        sh "cd ${workDir}"
+        sh "make release-build"
+      }
+
+//      stage ('test') {
+//        sh "cd ${workDir}"
+//        sh "make dev-test"
+//      }
+
+      stage ('publish') {
+
+        // https://support.cloudbees.com/hc/en-us/articles/204897020-Fetch-a-userid-and-password-from-a-Credential-object-in-a-Pipeline-job-
+        withCredentials([[$class : 'UsernamePasswordMultiBinding', credentialsId: config.container_repo.jenkins_creds_id,
+                        usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+          sh "docker login -e ${config.container_repo.dockeremail} -u ${env.USERNAME} -p ${env.PASSWORD} https://${config.container_repo.host}"
+        }
+
+        pipeline.containerBuildPub(
+          dockerfile: config.container_repo.dockerfile,
+          host      : config.container_repo.host,
+          acct      : acct,
+          repo      : config.container_repo.repo,
+          tags      : image_tags_list,
+          auth_id   : config.container_repo.jenkins_creds_id
+        )
+      }
+
+    }
+}

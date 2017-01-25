@@ -90,7 +90,7 @@ all-push: $(addprefix push-, $(ALL_ARCH))
 
 build: bin/$(ARCH)/$(BIN)  ## Compiles your app.
 
-bin/$(ARCH)/$(BIN): build-dirs
+orig/bin/$(ARCH)/$(BIN): build-dirs
 	@echo "building: $@"
 	@docker run                                                            \
 	    -ti                                                                \
@@ -136,8 +136,10 @@ version: ## Display various versions
 	@echo "THock ver:       ${VERSION}"
 	@echo "Build tag:       ${DOCKER_VERSION}"
 	@echo "Image Registry:  ${DOCKER_REGISTRY}"
-
-#	    -u $$(id -u):$$(id -g)                                             \
+	@echo "git remote url:  ${GIT_REMOTE_URL}"
+	@echo "git version:     ${GIT_VERSION}"
+	@echo "git commit id:   ${GIT_COMMIT_ID}"
+	@echo "git sha:         ${GIT_SHA}"
 
 test: build-dirs
 	@docker run                                                            \
@@ -168,17 +170,6 @@ bin-clean:
 
 ## Additions by pinterb
 
-vendor-clean:
-	rm -rf vendor/github.com/Sirupsen/logrus/examples
-	rm -rf vendor/github.com/apache/thrift/lib/go/test
-	rm -rf vendor/github.com/apache/thrift/test
-	rm -rf vendor/github.com/apache/thrift/tutorial
-	rm -rf vendor/github.com/bugsnag/bugsnag-go/examples
-	rm -rf vendor/github.com/go-kit/kit/examples
-	rm -rf vendor/github.com/rakyll/statik/example
-	rm -rf vendor/github.com/docker/distribution/registry/storage/driver/testsuites
-	rm -rf vendor/github.com/influxdata/influxdb/services/collectd/test_client
-
 .PHONY: container-clean-untagged
 container-clean-untagged: container-clean-stopped
 	docker images --no-trunc | grep none | awk '{print $$3}' | xargs -r docker rmi
@@ -192,10 +183,12 @@ HAS_GLIDE_VC := $(shell command -v glide-vc;)
 HAS_HG := $(shell command -v hg;)
 HAS_GIT := $(shell command -v git;)
 
-GIT_COMMIT := $(shell git rev-parse HEAD)
+GIT_REMOTE_URL := $(shell git config --get remote.origin.url)
+GIT_VERSION := $(shell git describe --always --dirty)
+GIT_COMMIT_ID := $(shell git rev-parse HEAD)
 GIT_SHA := $(shell git rev-parse --short HEAD)
 GIT_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
-GIT_DIRTY = $(shell test -n "`git status --porcelain`" && echo "dirty" || echo "clean")
+GIT_DIRTY ?= $(shell test -n "`git status --porcelain`" && echo "dirty" || echo "clean")
 
 TAGS      :=
 GO        ?= go
@@ -215,7 +208,7 @@ BINARY_VERSION ?= ${GIT_TAG}-${GIT_SHA}
 
 LDFLAGS :=
 LDFLAGS += -X ${PROJECT}/pkg/version.Version=${GIT_TAG}
-LDFLAGS += -X ${PROJECT}/pkg/version.GitCommit=${GIT_COMMIT}
+LDFLAGS += -X ${PROJECT}/pkg/version.GitCommit=${GIT_COMMIT_ID}
 LDFLAGS += -X ${PROJECT}/pkg/version.GitTreeState=${GIT_DIRTY}
 
 DOCKER_PUSH = docker push
@@ -237,35 +230,41 @@ endif
 ifndef HAS_GIT
 		$(error You must install Git)
 endif
-		glide install --strip-vendor
-		@$(MAKE) vendor-clean
-		mkdir -p /tmp/armorbuild
-		cp -R vendor/github.com/fsouza /tmp/armorbuild/
-		cp -R vendor/github.com/docker /tmp/armorbuild/
-		glide-vc
-		cp -R /tmp/armorbuild/fsouza vendor/github.com/
-		cp -R /tmp/armorbuild/docker vendor/github.com/
-		rm -rf /tmp/armorbuild
 
-.PHONY: dev-build
-dev-build: ## Dev build that should be used during development AND before your /vendor directory is finally populated
-	GOBIN=$(BINDIR) $(GO) install $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' '$(PKG)/cmd/...'
+bin/$(ARCH)/$(BIN): build-dirs
+	CGO_ENABLED=$(CGO) GOARCH="${ARCH}" GOBIN=$(BINDIR)/$(ARCH) $(GO) install $(GOFLAGS) -tags '$(TAGS)' -ldflags '$(LDFLAGS)' '$(PKG)/cmd/...'
 
-.PHONY: dev-test
-dev-test: dev-build ## Use this like 'dev-build' ...but for testing.
-dev-test: TESTFLAGS += -race -v
-dev-test: dev-test-unit
-#dev-test: dev-test-style
-
-.PHONY: dev-test-unit
-dev-test-unit:
+.PHONY: test-unit
+test-unit:
 	$(GO) test $(GOFLAGS) -run $(TESTS) $(PKG)/pkg/... $(TESTFLAGS)
 	$(GO) test $(GOFLAGS) -run $(TESTS) $(PKG)/cmd/... $(TESTFLAGS)
 
-.PHONY: dev-test-style
-dev-test-style:
+.PHONY: test-style
+test-style:
 	@build/validate-go.sh
-	@build/validate-license.sh
+#	@build/validate-license.sh
+
+.PHONY: dev-build
+dev-build: CGO := 1 ## Development compile (i.e. non-statically compiled with CGO_ENABLED=1)
+dev-build: GOFLAGS :=
+dev-build: bin/$(ARCH)/$(BIN)
+
+.PHONY: dev-test
+dev-test: dev-build ## Local golang testing with external dependencies (e.g. Vault) injected as embedded containers.
+dev-test: TESTFLAGS += -race -v
+dev-test: test-unit
+dev-test: test-style
+
+.PHONY: release-build
+release-build: CGO := 0  ## Release compile (i.e. statically compiled). Run as root in Jenkins.
+release-build: GOFLAGS := -installsuffix "static"
+release-build: bin/$(ARCH)/$(BIN)
+
+.PHONY: release-test
+release-test: ## Jenkins release testing with external dependencies already started.
+release-test: TESTFLAGS += -race -v -integration=true
+release-test: test-unit
+release-test: test-style
 
 .PHONY: help
 help:

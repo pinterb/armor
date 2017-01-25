@@ -55,8 +55,80 @@ func New(instance string, tracer stdopentracing.Tracer, logger log.Logger) (vaul
 		}))(initStatusEndpoint)
 	}
 
+	var initEndpoint endpoint.Endpoint
+	{
+		initEndpoint = httptransport.NewClient(
+			"PUT",
+			copyURL(u, "/init"),
+			vaulthttp.EncodeInitRequest,
+			vaulthttp.DecodeInitResponse,
+			httptransport.ClientBefore(opentracing.ToHTTPRequest(tracer, logger)),
+		).Endpoint()
+		initEndpoint = opentracing.TraceClient(tracer, "Init")(initEndpoint)
+		initEndpoint = limiter(initEndpoint)
+		initEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{
+			Name:    "Init",
+			Timeout: 30 * time.Second,
+		}))(initEndpoint)
+	}
+
+	var sealStatusEndpoint endpoint.Endpoint
+	{
+		sealStatusEndpoint = httptransport.NewClient(
+			"GET",
+			copyURL(u, "/seal/status"),
+			vaulthttp.EncodeGenericRequest,
+			vaulthttp.DecodeSealStatusResponse,
+			httptransport.ClientBefore(opentracing.ToHTTPRequest(tracer, logger)),
+		).Endpoint()
+		sealStatusEndpoint = opentracing.TraceClient(tracer, "SealStatus")(sealStatusEndpoint)
+		sealStatusEndpoint = limiter(sealStatusEndpoint)
+		sealStatusEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{
+			Name:    "SealStatus",
+			Timeout: 30 * time.Second,
+		}))(sealStatusEndpoint)
+	}
+
+	var unsealEndpoint endpoint.Endpoint
+	{
+		unsealEndpoint = httptransport.NewClient(
+			"PUT",
+			copyURL(u, "/unseal"),
+			vaulthttp.EncodeGenericRequest,
+			vaulthttp.DecodeUnsealResponse,
+			httptransport.ClientBefore(opentracing.ToHTTPRequest(tracer, logger)),
+		).Endpoint()
+		unsealEndpoint = opentracing.TraceClient(tracer, "Unseal")(unsealEndpoint)
+		unsealEndpoint = limiter(unsealEndpoint)
+		unsealEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{
+			Name:    "Unseal",
+			Timeout: 30 * time.Second,
+		}))(unsealEndpoint)
+	}
+
+	var configureEndpoint endpoint.Endpoint
+	{
+		configureEndpoint = httptransport.NewClient(
+			"POST",
+			copyURL(u, "/configure"),
+			vaulthttp.EncodeGenericRequest,
+			vaulthttp.DecodeConfigureResponse,
+			httptransport.ClientBefore(opentracing.ToHTTPRequest(tracer, logger)),
+		).Endpoint()
+		configureEndpoint = opentracing.TraceClient(tracer, "Configure")(configureEndpoint)
+		configureEndpoint = limiter(configureEndpoint)
+		configureEndpoint = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{
+			Name:    "Configure",
+			Timeout: 30 * time.Second,
+		}))(configureEndpoint)
+	}
+
 	return vaultendpoints.Endpoints{
 		InitStatusEndpoint: initStatusEndpoint,
+		InitEndpoint:       initEndpoint,
+		SealStatusEndpoint: sealStatusEndpoint,
+		UnsealEndpoint:     unsealEndpoint,
+		ConfigureEndpoint:  configureEndpoint,
 	}, nil
 }
 

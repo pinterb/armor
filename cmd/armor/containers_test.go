@@ -4,17 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/cdwlabs/armor/pkg/config"
 	docker "github.com/fsouza/go-dockerclient"
 	vaultapi "github.com/hashicorp/vault/api"
 	"github.com/pborman/uuid"
-	"github.com/spf13/viper"
+	//	"github.com/spf13/viper"
 	"golang.org/x/net/context"
 	"io/ioutil"
 	"os"
-	"path/filepath"
-	"reflect"
-	"runtime"
-	"testing"
 	"time"
 )
 
@@ -56,33 +53,6 @@ var (
 	// as the value of the environment variable VAULT_LOCAL_CONFIG.
 	VaultLocalConfigGen = DefaultVaultLocalConfig
 )
-
-// assert fails the test if the condition is false.
-func assert(tb testing.TB, condition bool, msg string, v ...interface{}) {
-	if !condition {
-		_, file, line, _ := runtime.Caller(1)
-		fmt.Printf("\033[31m%s:%d: "+msg+"\033[39m\n\n", append([]interface{}{filepath.Base(file), line}, v...)...)
-		tb.FailNow()
-	}
-}
-
-// ok fails the test if an err is not nil.
-func ok(tb testing.TB, err error) {
-	if err != nil {
-		_, file, line, _ := runtime.Caller(1)
-		fmt.Printf("\033[31m%s:%d: unexpected error: %s\033[39m\n\n", filepath.Base(file), line, err.Error())
-		tb.FailNow()
-	}
-}
-
-// equals fails the test if exp is not equal to act.
-func equals(tb testing.TB, exp, act interface{}) {
-	if !reflect.DeepEqual(exp, act) {
-		_, file, line, _ := runtime.Caller(1)
-		fmt.Printf("\033[31m%s:%d:\n\n\texp: %#v\n\n\tgot: %#v\033[39m\n\n", filepath.Base(file), line, exp, act)
-		tb.FailNow()
-	}
-}
 
 func DefaultVaultLocalConfig() (string, error) {
 	type Backend struct {
@@ -191,19 +161,22 @@ func NewTestContainers() (*TestContainers, error) {
 		return nil, fmt.Errorf("Failed to temp directory for vault's data directory: %v", err)
 	}
 
+	//	cfg := config.Config()
 	cwd, _ := os.Getwd()
 	// Don't think client certs are necessary...especially for testing(?)
 	//os.Setenv(vaultapi.EnvVaultClientCert, cwd+"/test-fixtures/keys/client.pem")
 	//os.Setenv(vaultapi.EnvVaultClientKey, cwd+"/test-fixtures/keys/client-key.pem")
 
 	//	os.Setenv(vaultapi.EnvVaultCACert, cwd+"/test-fixtures/keys/ca-cert.pem")
-	viper.Set("vaultCACert", cwd+"/test-fixtures/keys/ca-cert.pem")
+	//viper.Set("vault_ca_cert", cwd+"/test-fixtures/keys/ca-cert.pem")
+	os.Setenv(config.VaultCACertEnvVar, cwd+"/test-fixtures/keys/ca-cert.pem")
 
 	//os.Setenv(vaultapi.EnvVaultCAPath, cwd+"/test-fixtures/keys")
-	viper.Set("vaultCAPath", cwd+"/test-fixtures/keys")
+	//viper.Set("vault_ca_path", cwd+"/test-fixtures/keys")
+	os.Setenv(config.VaultCAPathEnvVar, cwd+"/test-fixtures/keys")
 
 	//os.Setenv(vaultapi.EnvVaultInsecure, "true")
-	//viper.Set("vaultTLSSkipVerify", true)
+	//viper.Set("vault_skip_verify", true)
 
 	os.Setenv(vaultapi.EnvVaultMaxRetries, "5")
 
@@ -225,7 +198,7 @@ func NewTestContainers() (*TestContainers, error) {
 	capadd := make([]string, 1)
 	capadd[0] = "IPC_LOCK"
 
-	//viper.Set("vaultAddr", "https://127.0.0.1:8200")
+	//viper.Set("vault_address", "https://127.0.0.1:8200")
 	portBindings := map[docker.Port][]docker.PortBinding{
 		"8200/tcp": {{HostIP: "0.0.0.0", HostPort: "8200"}}}
 
@@ -243,7 +216,9 @@ func NewTestContainers() (*TestContainers, error) {
 		"8200/tcp": {}}
 
 	genVaultConfig, err := VaultLocalConfigGen()
-	fmt.Printf("generated vault config ===>%s<===", genVaultConfig)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to render vault configuration json: %v", err)
+	}
 
 	createOpts := docker.CreateContainerOptions{
 		Name: containerName,
@@ -336,7 +311,14 @@ func getDockerEndpoint() string {
 		endpoint = "unix:///var/run/docker.sock"
 	}
 
-	fmt.Println("Connecting to docker on: ", endpoint)
-
 	return endpoint
+}
+
+func containsString(stringSlice []string, searchString string) bool {
+	for _, value := range stringSlice {
+		if value == searchString {
+			return true
+		}
+	}
+	return false
 }

@@ -6,7 +6,7 @@ def pipeline = new io.clusterops.Pipeline()
 
 node {
   def goPath = "/go"
-  def workDir = "${goPath}/src/github.com/pinterb/armor"
+  def workDir = "${goPath}/src/github.com/cdwlabs/armor"
   def pwd = pwd()
 
   checkout scm
@@ -28,15 +28,20 @@ node {
   // set additional git envars for image tagging
   pipeline.gitEnvVars()
 
+  // set additional docker envars
+  pipeline.dockerEnvVars()
+
   // used to debug deployment setup
   env.DEBUG_DEPLOY = false
 
   // debugging helm deployments
-  if (env.DEBUG_DEPLOY) {
+  if (env.DEBUG_DEPLOY.equals("true")) {
     println "Display Docker version"
     sh "docker version"
+
     println "Display Golang version"
     sh "go version"
+
     println "Running helm tests"
     pipeline.kubectlTest()
     pipeline.helmConfig()
@@ -51,20 +56,38 @@ node {
   def image_tags_list = pipeline.getMapValues(image_tags_map)
 
   stage ('preparation') {
-    // Print env -- debugging
-    //sh "env | sort"
-
     sh "mkdir -p ${workDir}"
     sh "cp -R ${pwd}/* ${workDir}"
+//    sh "groupadd -f -g ${env.DOCKER_GROUP_ID} docker"
+//    sh "docker run -d --name testvault -e 'VAULT_DEV_ROOT_TOKEN_ID=myroot' -e 'VAULT_DEV_LISTEN_ADDRESS=127.0.0.1:1234' vault"
+//    sh "docker stop testvault"
   }
 
   stage ('compile') {
     sh "cd ${workDir}"
-    sh "make dev-build"
+    sh "make release-build"
   }
 
   stage ('test') {
-    sh "make dev-test"
+    sh "cd ${workDir}"
+    sh "make release-test"
+  }
+
+  stage ('publish') {
+    // https://support.cloudbees.com/hc/en-us/articles/204897020-Fetch-a-userid-and-password-from-a-Credential-object-in-a-Pipeline-job-
+    withCredentials([[$class : 'UsernamePasswordMultiBinding', credentialsId: config.container_repo.jenkins_creds_id,
+                    usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+      sh "docker login -e ${config.container_repo.dockeremail} -u ${env.USERNAME} -p ${env.PASSWORD} https://${config.container_repo.host}"
+    }
+
+    pipeline.containerBuildPub(
+      dockerfile: config.container_repo.dockerfile,
+      host      : config.container_repo.host,
+      acct      : acct,
+      repo      : config.container_repo.repo,
+      tags      : image_tags_list,
+      auth_id   : config.container_repo.jenkins_creds_id
+    )
   }
 
 }

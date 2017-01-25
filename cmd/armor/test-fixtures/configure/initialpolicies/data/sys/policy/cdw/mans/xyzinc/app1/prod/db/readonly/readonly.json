@@ -1,0 +1,3 @@
+{
+  "rules":"path \"cdw/mans/xyzinc/app1/prod/db/creds/readonly\" {\n  capabilities = [\"read\"]\n}\n path \"sys/*\" {\npolicy = \"deny\"\n}"
+}

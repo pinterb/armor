@@ -26,6 +26,7 @@ echo
 echo "==> Running static validations <=="
 # Run linters that should return errors
 gometalinter \
+  --deadline=360s \
   --disable-all \
   --enable deadcode \
   --severity deadcode:error \
@@ -42,6 +43,7 @@ echo
 echo "==> Running linters <=="
 # Run linters that should return warnings
 gometalinter \
+  --deadline=60s \
   --disable-all \
   --enable golint \
   --vendor \

@@ -1,17 +1,13 @@
 package commands
 
 import (
-	//	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
-
-	"github.com/mitchellh/go-homedir"
 
 	lightstep "github.com/lightstep/lightstep-tracer-go"
 	stdopentracing "github.com/opentracing/opentracing-go"
@@ -21,22 +17,19 @@ import (
 	"sourcegraph.com/sourcegraph/appdash"
 	appdashot "sourcegraph.com/sourcegraph/appdash/opentracing"
 
+	"github.com/cdwlabs/armor/cmd/helpers"
 	"github.com/cdwlabs/armor/pb"
+	"github.com/cdwlabs/armor/pkg/config"
 	"github.com/cdwlabs/armor/pkg/proxy/endpoints"
-	vaultgrpc "github.com/cdwlabs/armor/pkg/proxy/grpc"
-	vaulthttp "github.com/cdwlabs/armor/pkg/proxy/http"
+	armorgrpc "github.com/cdwlabs/armor/pkg/proxy/grpc"
+	armorhealth "github.com/cdwlabs/armor/pkg/proxy/health"
+	armorhttp "github.com/cdwlabs/armor/pkg/proxy/http"
 	"github.com/cdwlabs/armor/pkg/proxy/service"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/metrics"
 	"github.com/go-kit/kit/metrics/prometheus"
-
-	flag "github.com/spf13/pflag"
-
-	"regexp"
-
-	"github.com/cdwlabs/armor/cmd/helpers"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"regexp"
 )
 
 // commandError is an error used to signal different error situations in
@@ -82,11 +75,14 @@ Complete documentation is available at https://github.com/cdwlabs/armor `,
 	RunE: Start,
 }
 
-var armorCmdV *cobra.Command
+// Our Cobra root command and global config
+var (
+	cfg config.Provider
+)
 
 // Flags that are to be added to commands.
 var (
-	debugAddr          string
+	adminAddr          string
 	httpAddr           string
 	grpcAddr           string
 	appdashAddr        string
@@ -96,6 +92,7 @@ var (
 	vaultCAPath        string
 	vaultTLSSkipVerify bool
 	cfgFile            string
+	policyConfigPath   string
 )
 
 // Execute adds all the child commands to the root command ArmorCmd and sets
@@ -123,196 +120,67 @@ func AddCommands() {
 }
 
 // initRootPersistentFlags initialize common flags related to running the
-// Armor server. Called by initArmorFlags()
+// Armor server.
 func initRootPersistentFlags() {
-	// hack alert: Not sure how to format raw strings to they display
-	// consistently on the cli
-	// debug address
-	debugAddrDesc := `Debug and metrics listen address. (default ":8080")
-                                 Overrides the ARMOR_DEBUG_ADDR environment variable if set.
-                                 NOT YET SUPPORTED!!
-																 `
-	ArmorCmd.PersistentFlags().StringVar(&debugAddr, "debug-addr", "", debugAddrDesc)
-	viper.BindPFlag("debugAddr", ArmorCmd.PersistentFlags().Lookup("debug-addr"))
-	viper.BindEnv("debugAddr", "ARMOR_DEBUG_ADDR")
-	viper.SetDefault("debugAddr", ":8080")
+	// admin address
+	adminAddrDesc := fmt.Sprintf("Admin listen address. This address provides health, readiness, debug and metrics endpoints. Overrides the %s environment variable if set. (default \"%s\") NOT YET FULLY SUPPORTED!!!\n", config.AdminAddrEnvVar, config.AdminAddrDefault)
+	ArmorCmd.PersistentFlags().StringVar(&adminAddr, "admin-address", "", adminAddrDesc)
 
 	// http address
-	httpAddrDesc := `HTTP listen address. (default ":8081")
-                                 Overrides the ARMOR_HTTP_ADDR environment variable if set.
-`
-	ArmorCmd.PersistentFlags().StringVar(&httpAddr, "http-addr", "", httpAddrDesc)
-	viper.BindPFlag("httpAddr", ArmorCmd.PersistentFlags().Lookup("http-addr"))
-	viper.BindEnv("httpAddr", "ARMOR_HTTP_ADDR")
-	viper.SetDefault("httpAddr", ":8081")
+	httpAddrDesc := fmt.Sprintf("HTTP listen address. Overrides the %s environment variable if set. (default \"%s\")\n", config.HTTPAddrEnvVar, config.HTTPAddrDefault)
+	ArmorCmd.PersistentFlags().StringVar(&httpAddr, "http-address", "", httpAddrDesc)
 
 	// grpc address
-	grpcAddrDesc := `gRPC listen address. (default ":8082")
-                                 Overrides the ARMOR_GRPC_ADDR environment variable if set.
-									 `
-	ArmorCmd.PersistentFlags().StringVar(&grpcAddr, "grpc-addr", "", grpcAddrDesc)
-	viper.BindPFlag("grpcAddr", ArmorCmd.PersistentFlags().Lookup("grpc-addr"))
-	viper.BindEnv("grpcAddr", "ARMOR_GRPC_ADDR")
-	viper.SetDefault("grpcAddr", ":8082")
+	grpcAddrDesc := fmt.Sprintf("gRPC listen address. Overrides the %s environment variable if set. (default \"%s\")\n", config.GrpcAddrEnvVar, config.GrpcAddrDefault)
+	ArmorCmd.PersistentFlags().StringVar(&grpcAddr, "grpc-address", "", grpcAddrDesc)
 
 	// Appdash perf tracing
-	appdashAddrDesc := `Enable Appdash tracing via an Appdash server host:port.
-                                 Overrides the ARMOR_APPDASH_ADDR environment variable if set.
-																 `
-	ArmorCmd.PersistentFlags().StringVar(&appdashAddr, "appdash-addr", "", appdashAddrDesc)
-	viper.BindPFlag("appdashAddr", ArmorCmd.PersistentFlags().Lookup("appdash-addr"))
-	viper.BindEnv("appdashAddr", "ARMOR_APPDASH_ADDR")
-	viper.SetDefault("appdashAddr", "")
+	appdashAddrDesc := fmt.Sprintf("Enable Appdash tracing via an Appdash server host:port. Overrides the %s environment variable if set.\n%s", config.AppDashAddrEnvVar, "")
+	ArmorCmd.PersistentFlags().StringVar(&appdashAddr, "appdash-address", "", appdashAddrDesc)
 
 	// LightStep distributed tracing
-	lightstepTokenDesc := `Enable LightStep tracing via a LightStep access token.
-                                 Overrides the ARMOR_LIGHTSTEP_TOKEN environment variable if set.
-																	`
+	lightstepTokenDesc := fmt.Sprintf("Enable LightStep tracing via a LightStep access token. Overrides the %s environment variable if set.\n%s", config.LightstepTokenEnvVar, "")
 	ArmorCmd.PersistentFlags().StringVar(&lightstepToken, "lightstep-token", "", lightstepTokenDesc)
-	viper.BindPFlag("lightstepToken", ArmorCmd.PersistentFlags().Lookup("lightstep-token"))
-	viper.BindEnv("lightstepToken", "ARMOR_LIGHTSTEP_TOKEN")
-	viper.SetDefault("lightstepToken", "")
 
 	// Vault server listen address
-	vaultAddrDesc := `The address of the Vault server. (default "https://127.0.0.1:8200")
-                                 Overrides the ARMOR_VAULT_ADDR environment variable if set
-													 `
-	ArmorCmd.PersistentFlags().StringVar(&vaultAddr, "vault-addr", "", vaultAddrDesc)
-	viper.BindPFlag("vaultAddr", ArmorCmd.PersistentFlags().Lookup("vault-addr"))
-	viper.BindEnv("vaultAddr", "ARMOR_VAULT_ADDR")
-	viper.SetDefault("vaultAddr", "https://127.0.0.1:8200")
+	vaultAddrDesc := fmt.Sprintf("The address of the Vault server. Overrides the %s environment variable if set. (default \"%s\")\n", config.VaultAddrEnvVar, config.VaultAddrDefault)
+	ArmorCmd.PersistentFlags().StringVar(&vaultAddr, "vault-address", "", vaultAddrDesc)
 
 	// Vault server ca cert
-	vaultCACertDesc := `Path to PEM encoded CA cert file.
-                                 Overrides the ARMOR_VAULT_CA_CERT environment variable if set.
-														`
+	vaultCACertDesc := fmt.Sprintf("Path to PEM encoded CA cert file. Overrides the %s environment variable if set.\n%s", config.VaultCACertEnvVar, "")
 	ArmorCmd.PersistentFlags().StringVar(&vaultCACert, "vault-ca-cert", "", vaultCACertDesc)
-	viper.BindPFlag("vaultCACert", ArmorCmd.PersistentFlags().Lookup("vault-ca-cert"))
-	viper.BindEnv("vaultCACert", "ARMOR_VAULT_CA_CERT")
-	viper.SetDefault("vaultCACert", "")
 
 	// Vault server ca path
-	vaultCAPathDesc := `Path to a directory of PEM encoded CA cert files.
-                                 Overrides the ARMOR_VAULT_CA_PATH environment variable if set.
-															 `
+	vaultCAPathDesc := fmt.Sprintf("Path to a directory of PEM encoded CA cert files. Overrides the %s environment variable if set. \n%s", config.VaultCAPathEnvVar, "")
 	ArmorCmd.PersistentFlags().StringVar(&vaultCAPath, "vault-ca-path", "", vaultCAPathDesc)
-	viper.BindPFlag("vaultCAPath", ArmorCmd.PersistentFlags().Lookup("vault-ca-path"))
-	viper.BindEnv("vaultCAPath", "ARMOR_VAULT_CA_PATH")
-	viper.SetDefault("vaultCAPath", "")
 
 	// Vault server skip tls verification
-	vaultTLSSkipVerifyDesc := `Do not verify TLS certificate. This is highly not recommended. (default false)
-	                         Verification will also be skipped if the ARMOR_VAULT_SKIP_VERIFY 
-                                 environment variable is set.
-																	 `
-	ArmorCmd.PersistentFlags().BoolVar(&vaultTLSSkipVerify, "vault-skip-verify", false, vaultTLSSkipVerifyDesc)
-	viper.BindPFlag("vaultTLSSkipVerify", ArmorCmd.PersistentFlags().Lookup("vault-skip-verify"))
-	viper.BindEnv("vaultTLSSkipVerify", "ARMOR_VAULT_SKIP_VERIFY")
-	viper.SetDefault("vaultTLSSkipVerify", false)
+	vaultTLSSkipVerifyDesc := fmt.Sprintf("Do not verify TLS certificate. This is highly not recommended. Verification will also be skipped if the %s environment variable is set. (default %v)\n", config.VaultSkipVerifyEnvVar, config.VaultSkipVerifyDefault)
+	ArmorCmd.PersistentFlags().BoolVar(&vaultTLSSkipVerify, "vault-skip-verify", config.VaultSkipVerifyDefault, vaultTLSSkipVerifyDesc)
+
+	// Armor policy directory
+	policyConfigDesc := fmt.Sprintf("Local download destination for configuring Vault with remote policy/configuration repositories. Overrides the %s environment variable if set. (default \"%s\")\n", config.PolicyConfigPathEnvVar, config.PolicyConfigPathDefault)
+	ArmorCmd.PersistentFlags().StringVar(&policyConfigPath, "policy-config-dir", "", policyConfigDesc)
 
 	// Armor configuration file location
-	cfgFileDesc := `config file (default is path/armor.yaml|json|toml) NOT YET SUPPORTED!!
-	`
+	cfgFileDesc := fmt.Sprintf("Path to a yaml configuration file. Use this configuration file when you don't want to use CLI arguments or set environment variables. Overrides the %s environment variable if set. NOTE: Environment variables take precedence over the configuration file.  And CLI arguments take precedence over environment variables. \n", config.ArmorConfigFileEnvVar)
 	ArmorCmd.PersistentFlags().StringVar(&cfgFile, "config", "", cfgFileDesc)
-	viper.BindPFlag("cfgFile", ArmorCmd.PersistentFlags().Lookup("config"))
-	viper.BindEnv("cfgFile", "ARMOR_CONFIG")
-	viper.SetDefault("cfgFile", "")
 
 	// Set bash-completion
-	validConfigFilenames := []string{"json", "js", "yaml", "yml", "toml", "tml"}
+	validConfigFilenames := []string{"yaml", "yml"}
 	ArmorCmd.PersistentFlags().SetAnnotation("config", cobra.BashCompFilenameExt, validConfigFilenames)
 }
 
 func init() {
-	viperConfigSettings()
 	initRootPersistentFlags()
-	armorCmdV = ArmorCmd
-}
-
-// InitializeConfig initializes config with sensible default
-// configuration flags.
-func InitializeConfig(subCmdVs ...*cobra.Command) error {
-	if err := loadGlobalConfig(cfgFile); err != nil {
-		return err
-	}
-
-	for _, cmdV := range append([]*cobra.Command{armorCmdV}, subCmdVs...) {
-
-		if flagChanged(cmdV.PersistentFlags(), "debugAddr") {
-			viper.Set("debugAddr", debugAddr)
-		}
-		if flagChanged(cmdV.PersistentFlags(), "httpAddr") {
-			viper.Set("httpAddr", httpAddr)
-		}
-		if flagChanged(cmdV.PersistentFlags(), "grpcAddr") {
-			viper.Set("grpcAddr", grpcAddr)
-		}
-		if flagChanged(cmdV.PersistentFlags(), "appdashAddr") {
-			viper.Set("appdashAddr", appdashAddr)
-		}
-		if flagChanged(cmdV.PersistentFlags(), "lightstepToken") {
-			viper.Set("lightstepToken", lightstepToken)
-		}
-		if flagChanged(cmdV.PersistentFlags(), "vaultAddr") {
-			viper.Set("vaultAddr", vaultAddr)
-		}
-		if flagChanged(cmdV.PersistentFlags(), "vaultCACert") {
-			viper.Set("vaultCACert", vaultCACert)
-		}
-		if flagChanged(cmdV.PersistentFlags(), "vaultCAPath") {
-			viper.Set("vaultCAPath", vaultCAPath)
-		}
-		if flagChanged(cmdV.PersistentFlags(), "vaultTLSSkipVerify") {
-			viper.Set("vaultTLSSkipVerify", vaultTLSSkipVerify)
-		}
-
-	}
-
-	return nil
-}
-
-func loadGlobalConfig(configFilename string) error {
-	viper.SetConfigFile(configFilename)
-	viper.AddConfigPath(".")
-
-	dir, err := homedir.Dir()
-	if err != nil {
-		return err
-	}
-	viper.AddConfigPath(dir)
-
-	err = viper.ReadInConfig()
-	if err != nil {
-		if _, ok := err.(viper.ConfigParseError); ok {
-			return err
-		}
-		// For now, let's not assume we require a config file...
-		//return fmt.Errorf("Unable to locate Config file. Perhaps you need to
-		//create a new config file.\n       Run `armor help config` for details. (%s)\n", err)
-	}
-
-	return nil
-}
-
-func viperConfigSettings() {
-	viper.AutomaticEnv()
-	viper.SetEnvPrefix("armor")
-	replacer := strings.NewReplacer("-", "_")
-	viper.SetEnvKeyReplacer(replacer)
-}
-
-func flagChanged(flags *flag.FlagSet, key string) bool {
-	flag := flags.Lookup(key)
-	if flag == nil {
-		return false
-	}
-	return flag.Changed
 }
 
 // Start initializes the config and then starts the services based
 // configuration provided.
 func Start(cmd *cobra.Command, args []string) error {
-	if err := InitializeConfig(); err != nil {
+	var err error
+	cfg, err = config.BindWithCobra(cmd)
+	if err != nil {
 		return err
 	}
 
@@ -322,11 +190,11 @@ func Start(cmd *cobra.Command, args []string) error {
 
 func startServices() {
 	var (
-		vdebugAddr      = viper.GetString("debugAddr")
-		vhttpAddr       = viper.GetString("httpAddr")
-		vgrpcAddr       = viper.GetString("grpcAddr")
-		vappdashAddr    = viper.GetString("appdashAddr")
-		vlightstepToken = viper.GetString("lightstepToken")
+		vadminAddr      = cfg.GetString("admin_address")
+		vhttpAddr       = cfg.GetString("http_address")
+		vgrpcAddr       = cfg.GetString("grpc_address")
+		vappdashAddr    = cfg.GetString("appdash_address")
+		vlightstepToken = cfg.GetString("lightstep_token")
 	)
 
 	// Logging domain.
@@ -400,19 +268,19 @@ func startServices() {
 	eps := endpoints.New(svc, logger, duration, tracer)
 
 	// Mechanical domain.
-	errc := make(chan error)
+	errChan := make(chan error)
 	ctx := context.Background()
 
 	// Interrupt handler.
-	go func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
-		errc <- fmt.Errorf("%s", <-c)
-	}()
+	//	go func() {
+	stopChan := make(chan os.Signal, 1)
+	signal.Notify(stopChan, syscall.SIGINT, syscall.SIGTERM)
+	//errChan <- fmt.Errorf("%s", <-stopChan)
+	//	}()
 
-	// Debug listener.
+	// Admin listener.
 	go func() {
-		logger := log.NewContext(logger).With("transport", "debug")
+		logger := log.NewContext(logger).With("transport", "admin")
 
 		m := http.NewServeMux()
 		m.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
@@ -421,18 +289,22 @@ func startServices() {
 		m.Handle("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
 		m.Handle("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
 		m.Handle("/metrics", stdprometheus.Handler())
+		m.HandleFunc("/healthz", armorhealth.HealthzHandler)
+		m.HandleFunc("/readiness", armorhealth.ReadinessHandler)
+		m.HandleFunc("/healthz/status", armorhealth.HealthzStatusHandler)
+		//m.HandleFunc("/readiness/status", armorhealth.ReadinessStatusHandler)
 
-		logger.Log("addr", vdebugAddr)
-		errc <- http.ListenAndServe(vdebugAddr, m)
+		logger.Log("addr", vadminAddr)
+		errChan <- http.ListenAndServe(vadminAddr, m)
 	}()
 
 	// Mechanical domain.
 	// HTTP transport.
 	go func() {
 		logger := log.NewContext(logger).With("transport", "HTTP")
-		mux := vaulthttp.NewHandler(ctx, eps, tracer, logger)
+		mux := armorhttp.NewHandler(ctx, eps, tracer, logger)
 		logger.Log("addr", vhttpAddr)
-		errc <- http.ListenAndServe(vhttpAddr, mux)
+		errChan <- http.ListenAndServe(vhttpAddr, mux)
 	}()
 
 	// gRPC transport.
@@ -441,18 +313,32 @@ func startServices() {
 
 		ln, err := net.Listen("tcp", vgrpcAddr)
 		if err != nil {
-			errc <- err
+			errChan <- err
 			return
 		}
 
-		srv := vaultgrpc.NewHandler(ctx, eps, tracer, logger)
+		srv := armorgrpc.NewHandler(ctx, eps, tracer, logger)
 		s := grpc.NewServer()
 		pb.RegisterVaultServer(s, srv)
 
 		logger.Log("addr", vgrpcAddr)
-		errc <- s.Serve(ln)
+		errChan <- s.Serve(ln)
 	}()
 
 	// Run!
-	logger.Log("exit", <-errc)
+	//logger.Log("exit", <-errChan)
+	for {
+		select {
+		case err := <-errChan:
+			logger.Log("exit", err)
+		case s := <-stopChan:
+			logger.Log("msg", fmt.Sprintf("captured %v. exiting...goodbye", s))
+			// TODO: graceful shutdown is not yet implemented. Wait 'till Golang v1.8
+			// is released (est. Feb. 2017).
+			// Example: https://tylerchr.blog/golang-18-whats-coming/
+			//armorhealth.SetReadinessStatus(http.StatusServiceUnavailable)
+			//httpServer.BlockingClose()
+			os.Exit(0)
+		}
+	}
 }

@@ -6,7 +6,7 @@
     "memory": "128Mi"
   },
   "container_repo": {
-    "host": "docker.io",
+    "host": "index.docker.io/v1/",
     "master_acct": "pinterb",
     "alt_acct": "pinterb",
     "jenkins_creds_id": "docker_creds",
@@ -19,5 +19,38 @@
       "library": {
         "branch": "master"
       }
+  },
+  "container": {
+    "vault": {
+      "name": "testvault",
+      "image_name": "pinterb/vault",
+      "image_tag": "0.6.2",
+      "volumes": {
+        "tls": {
+          "src": "/go/src/github.com/cdwlabs/armor/cmd/armor/test-fixtures/keys",
+          "dest": "/vault/tls"
+        },
+        "file": {
+          "src": "/home/jenkins/workspace",
+          "dest": "/vault/file"
+        }
+      },
+      "config": {
+        "listener": {
+         "tcp":{
+           "address": "0.0.0.0:8200",
+           "tls_cert_file": "/vault/tls/cert.pem",
+           "tls_disable": "false",
+           "tls_key_file": "/vault/tls/cert-key.pem"}
+        },
+        "backend": {
+         "file": {
+           "path": "/vault/file"}
+        },
+        "telemetry": {},
+        "max_lease_ttl": "720h",
+        "default_lease_ttl":"168h"
+      }
+    }
   }
 }
