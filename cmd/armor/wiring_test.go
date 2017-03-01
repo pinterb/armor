@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	dbackend "github.com/cdwlabs/armor/pkg/backend/data"
 	grpcclient "github.com/cdwlabs/armor/pkg/client/grpc"
 	httpclient "github.com/cdwlabs/armor/pkg/client/http"
 	"github.com/cdwlabs/armor/pkg/config"
@@ -68,6 +69,13 @@ func setUp(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "expecting error to be os.IsNotExist")
 	err = os.MkdirAll(config.PolicyConfigPathDefault, 0755)
 	assert.NoError(t, err, "not expecting an error when making policy config dir")
+
+	ok, err := dbackend.TokenHolderTableExists()
+	assert.NoError(t, err, "not expecting an error when checking if dynamodb table exists")
+	assert.False(t, ok, "expecting the dynamodb table to not exist")
+
+	err = dbackend.CreateTokenHolderTable()
+	assert.NoError(t, err, "not expecting an error when creating dynamodb table")
 }
 
 func tearDown(t *testing.T) {
@@ -78,6 +86,13 @@ func tearDown(t *testing.T) {
 	_, err = os.Stat(config.PolicyConfigPathDefault)
 	assert.Error(t, err, "expecting an error when stat'n policy config dir")
 	assert.True(t, os.IsNotExist(err), "expecting error to be os.IsNotExist")
+
+	ok, err := dbackend.TokenHolderTableExists()
+	assert.NoError(t, err, "not expecting an error when checking if dynamodb table exists")
+	assert.True(t, ok, "expecting the dynamodb table to exist")
+
+	err = dbackend.DeleteTokenHolderTable()
+	assert.NoError(t, err, "not expecting an error when deleting dynamodb table")
 }
 
 func TestHTTPWiring(t *testing.T) {
@@ -112,8 +127,16 @@ func TestHTTPWiring(t *testing.T) {
 
 	// Perform a valid init of uninitialized vault
 	initOptions := service.InitOptions{
-		SecretShares:    5,
-		SecretThreshold: 3,
+		SecretShares:         5,
+		SecretThreshold:      3,
+		RootTokenHolderEmail: "aaron.rodgers@packers.com",
+		SecretKeyHolderEmails: []string{
+			"david.bakhtiari@packers.com",
+			"lane.taylor@packers.com",
+			"corey.linsely@packers.com",
+			"tj.lang@packers.com",
+			"bryan.bulaga@packers.com",
+		},
 	}
 	initValues, err := client.Init(ctx, initOptions)
 	assert.NoError(t, err, "not expecting an error when calling http init")
@@ -129,6 +152,30 @@ func TestHTTPWiring(t *testing.T) {
 	assert.True(t, 36 == roottokenlen, "expecting a root token to be returned")
 	assert.True(t, 0 == recovkeylen, "not expecting any recovery keys to be returned")
 	assert.True(t, 0 == recovkey64len, "not expecting any base 64 recovery keys to be returned")
+
+	// validate root token was persisted correctly
+	tokenHolder := dbackend.NewTokenHolder()
+	tokenHolder.Email = "aaron.rodgers@packers.com"
+	err = tokenHolder.GetItem()
+	assert.NoError(t, err, "not expecting an error when retrieving token holder")
+	assert.Equal(t, initValues.RootToken, tokenHolder.Token, "expecting matching root tokens")
+	assert.Equal(t, dbackend.RootTokenType, tokenHolder.TokenType, "expecting matching token types")
+
+	// validate 1st secret token was persisted correctly
+	tokenHolder = dbackend.NewTokenHolder()
+	tokenHolder.Email = "david.bakhtiari@packers.com"
+	err = tokenHolder.GetItem()
+	assert.NoError(t, err, "not expecting an error when retrieving token holder")
+	assert.Equal(t, initValues.Keys[0], tokenHolder.Token, "expecting matching secret tokens")
+	assert.Equal(t, dbackend.UnsealTokenType, tokenHolder.TokenType, "expecting matching token types")
+
+	// validate 5th secret token was persisted correctly
+	tokenHolder = dbackend.NewTokenHolder()
+	tokenHolder.Email = "bryan.bulaga@packers.com"
+	err = tokenHolder.GetItem()
+	assert.NoError(t, err, "not expecting an error when retrieving token holder")
+	assert.Equal(t, initValues.Keys[4], tokenHolder.Token, "expecting matching secret tokens")
+	assert.Equal(t, dbackend.UnsealTokenType, tokenHolder.TokenType, "expecting matching token types")
 
 	// Save these keys for unsealing
 	keyone := initValues.Keys[0]
@@ -300,7 +347,6 @@ func TestHTTPWiring(t *testing.T) {
 	}
 	configstate, err = client.Configure(ctx, cfgreq)
 	assert.NoError(t, err, "not expecting an error from /configure disable policy")
-	fmt.Printf("polcies: %q\n", configstate.Policies)
 	assert.True(t, len(configstate.Policies) == 3, "expecting three policies")
 	assert.False(t, containsString(configstate.Policies, "postgresql/readonly"), "expecting a specific policy")
 	assert.True(t, containsString(configstate.Policies, "cdw/mans/xyzinc/app1/prod/db/readonly"), "expecting a specific policy")
@@ -349,8 +395,16 @@ func TestGRPCWiring(t *testing.T) {
 
 	// Perform a valid init of uninitialized vault
 	initOptions := service.InitOptions{
-		SecretShares:    5,
-		SecretThreshold: 3,
+		SecretShares:         5,
+		SecretThreshold:      3,
+		RootTokenHolderEmail: "aaron.rodgers@packers.com",
+		SecretKeyHolderEmails: []string{
+			"david.bakhtiari@packers.com",
+			"lane.taylor@packers.com",
+			"corey.linsely@packers.com",
+			"tj.lang@packers.com",
+			"bryan.bulaga@packers.com",
+		},
 	}
 
 	initValues, err := client.Init(ctx, initOptions)
@@ -367,6 +421,30 @@ func TestGRPCWiring(t *testing.T) {
 	assert.True(t, 36 == roottokenlen, "expecting a root token to be returned")
 	assert.True(t, 0 == recovkeylen, "not expecting any recovery keys to be returned")
 	assert.True(t, 0 == recovkey64len, "not expecting any base 64 recovery keys to be returned")
+
+	// validate root token was persisted correctly
+	tokenHolder := dbackend.NewTokenHolder()
+	tokenHolder.Email = "aaron.rodgers@packers.com"
+	err = tokenHolder.GetItem()
+	assert.NoError(t, err, "not expecting an error when retrieving token holder")
+	assert.Equal(t, initValues.RootToken, tokenHolder.Token, "expecting matching root tokens")
+	assert.Equal(t, dbackend.RootTokenType, tokenHolder.TokenType, "expecting matching token types")
+
+	// validate 1st secret token was persisted correctly
+	tokenHolder = dbackend.NewTokenHolder()
+	tokenHolder.Email = "david.bakhtiari@packers.com"
+	err = tokenHolder.GetItem()
+	assert.NoError(t, err, "not expecting an error when retrieving token holder")
+	assert.Equal(t, initValues.Keys[0], tokenHolder.Token, "expecting matching secret tokens")
+	assert.Equal(t, dbackend.UnsealTokenType, tokenHolder.TokenType, "expecting matching token types")
+
+	// validate 5th secret token was persisted correctly
+	tokenHolder = dbackend.NewTokenHolder()
+	tokenHolder.Email = "bryan.bulaga@packers.com"
+	err = tokenHolder.GetItem()
+	assert.NoError(t, err, "not expecting an error when retrieving token holder")
+	assert.Equal(t, initValues.Keys[4], tokenHolder.Token, "expecting matching secret tokens")
+	assert.Equal(t, dbackend.UnsealTokenType, tokenHolder.TokenType, "expecting matching token types")
 
 	// Save these keys for unsealing
 	keyone := initValues.Keys[0]
@@ -536,7 +614,6 @@ func TestGRPCWiring(t *testing.T) {
 	}
 	configstate, err = client.Configure(ctx, cfgreq)
 	assert.NoError(t, err, "not expecting an error from /configure disable policy")
-	fmt.Printf("polcies: %q\n", configstate.Policies)
 	assert.True(t, len(configstate.Policies) == 3, "expecting three policies")
 	assert.False(t, containsString(configstate.Policies, "postgresql/readonly"), "expecting a specific policy")
 	assert.True(t, containsString(configstate.Policies, "cdw/mans/xyzinc/app1/prod/db/readonly"), "expecting a specific policy")

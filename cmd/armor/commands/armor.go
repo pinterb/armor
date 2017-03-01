@@ -93,6 +93,8 @@ var (
 	vaultTLSSkipVerify bool
 	cfgFile            string
 	policyConfigPath   string
+	awsAccessKeyID     string
+	awsSecretAccessKey string
 )
 
 // Execute adds all the child commands to the root command ArmorCmd and sets
@@ -166,6 +168,14 @@ func initRootPersistentFlags() {
 	cfgFileDesc := fmt.Sprintf("Path to a yaml configuration file. Use this configuration file when you don't want to use CLI arguments or set environment variables. Overrides the %s environment variable if set. NOTE: Environment variables take precedence over the configuration file.  And CLI arguments take precedence over environment variables. \n", config.ArmorConfigFileEnvVar)
 	ArmorCmd.PersistentFlags().StringVar(&cfgFile, "config", "", cfgFileDesc)
 
+	// AWS access key id
+	awsAccessKeyIDDesc := fmt.Sprintf("AWS access key id.  These AWS resources provide backend infrastructure to support Armor. Overrides the %s environment variable if set. (default \"%s\")\n", config.AWSAccessKeyIDEnvVar, "")
+	ArmorCmd.PersistentFlags().StringVar(&awsAccessKeyID, "aws-access-key-id", "", awsAccessKeyIDDesc)
+
+	// AWS secret access key
+	awsSecretAccessKeyDesc := fmt.Sprintf("AWS secret access key.  These AWS resources provide backend infrastructure to support Armor. Overrides the %s environment variable if set. (default \"%s\")\n", config.AWSSecretAccessKeyEnvVar, "")
+	ArmorCmd.PersistentFlags().StringVar(&awsSecretAccessKey, "aws-secret-access-key", "", awsSecretAccessKeyDesc)
+
 	// Set bash-completion
 	validConfigFilenames := []string{"yaml", "yml"}
 	ArmorCmd.PersistentFlags().SetAnnotation("config", cobra.BashCompFilenameExt, validConfigFilenames)
@@ -180,6 +190,7 @@ func init() {
 func Start(cmd *cobra.Command, args []string) error {
 	var err error
 	cfg, err = config.BindWithCobra(cmd)
+
 	if err != nil {
 		return err
 	}

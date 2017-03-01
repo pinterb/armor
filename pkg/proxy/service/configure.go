@@ -13,11 +13,6 @@ import (
 	"regexp"
 )
 
-// use a single instance of Validate, it caches struct info
-var (
-	validate *validator.Validate
-)
-
 // validation errors
 var (
 	ErrDestUnset                 = errors.New("policy download dest not set in config")
@@ -102,8 +97,7 @@ func (opts *ConfigOptions) validate() (configOptsExp, error) {
 		return configOptsExp{}, ErrDestUnset
 	}
 
-	validate = validator.New()
-	err := validate.Struct(opts)
+	err := config.Validator().Struct(opts)
 	if err != nil {
 		validationerr := ""
 		for _, err := range err.(validator.ValidationErrors) {

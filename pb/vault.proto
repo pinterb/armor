@@ -68,6 +68,8 @@ message InitRequest {
         uint32 recovery_threshold = 6;
         repeated string recovery_pgp_keys = 7;
         string root_token_pgp_key = 8;
+        string root_token_holder_email = 9;
+        repeated string secret_key_holder_emails = 10;
 }
 
 message InitResponse {

@@ -104,6 +104,14 @@ func viperConfig(appName string) *viper.Viper {
 	v.BindEnv("policy_config_dir", PolicyConfigPathEnvVar)
 	v.SetDefault("policy_config_dir", PolicyConfigPathDefault)
 
+	// aws access key id
+	v.BindEnv("aws_access_key_id", AWSAccessKeyIDEnvVar)
+	v.SetDefault("aws_access_key_id", "")
+
+	// aws secret access key
+	v.BindEnv("aws_secret_access_key", AWSSecretAccessKeyEnvVar)
+	v.SetDefault("aws_secret_access_key", "")
+
 	// armor configuration file location
 	v.BindEnv("cfgFile", ArmorConfigFileEnvVar)
 	v.SetDefault("cfgFile", "")
@@ -124,6 +132,8 @@ func bindCobra(cmd *cobra.Command) bool {
 	defaultConfig.BindPFlag("vault_skip_verify", cmd.PersistentFlags().Lookup("vault-skip-verify"))
 	defaultConfig.BindPFlag("policy_config_dir", cmd.PersistentFlags().Lookup("policy-config-dir"))
 	defaultConfig.BindPFlag("cfgFile", cmd.PersistentFlags().Lookup("config"))
+	defaultConfig.BindPFlag("aws_access_key_id", cmd.PersistentFlags().Lookup("aws-access-key-id"))
+	defaultConfig.BindPFlag("aws_secret_access_key", cmd.PersistentFlags().Lookup("aws-secret-access-key"))
 	return true
 }
 
@@ -202,4 +212,12 @@ const (
 
 	// ArmorConfigFileEnvVar is the env variable set for Armor's config file
 	ArmorConfigFileEnvVar string = "ARMOR_CONFIG"
+
+	// AWSAccessKeyIDEnvVar is the env variable set to define the
+	// AWS_ACCESS_KEY_ID for Armor's backend (e.g. SES, DYNAMO, etc.)
+	AWSAccessKeyIDEnvVar string = "ARMOR_AWS_ACCESS_KEY_ID"
+
+	// AWSSecretAccessKeyEnvVar is the env variable set to define the
+	// AWS_SECRET_ACCESS_KEY for Armor's backend (e.g. SES, DYNAMO, etc.)
+	AWSSecretAccessKeyEnvVar string = "ARMOR_AWS_SECRET_ACCESS_KEY"
 )

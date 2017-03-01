@@ -7,8 +7,8 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/cdwlabs/armor/pkg/config"
 	vaultapi "github.com/hashicorp/vault/api"
-	"github.com/spf13/viper"
 )
 
 func vaulthealth() error {
@@ -31,9 +31,10 @@ func newVaultClient() (*vaultapi.Client, error) {
 		return nil, err
 	}
 
+	cfg := config.Config()
 	config := vaultapi.DefaultConfig()
-	if viper.IsSet("vault_address") && viper.GetString("vault_address") != "" {
-		config.Address = viper.GetString("vault_address")
+	if cfg.IsSet("vault_address") && cfg.GetString("vault_address") != "" {
+		config.Address = cfg.GetString("vault_address")
 	} else if v := os.Getenv("VAULT_ADDRESS"); v != "" {
 		config.Address = v
 	}
@@ -52,34 +53,35 @@ func newVaultClient() (*vaultapi.Client, error) {
 // secondarily checks for existence of same environment variables as the Vault
 // client CLI (e.g. VAULT_CACERT).
 func defaultTLSConfig() (*vaultapi.TLSConfig, error) {
+	cfg := config.Config()
 	config := &vaultapi.TLSConfig{}
 
-	if viper.IsSet("vault_ca_cert") && viper.GetString("vault_ca_cert") != "" {
-		config.CACert = viper.GetString("vault_ca_cert")
+	if cfg.IsSet("vault_ca_cert") && cfg.GetString("vault_ca_cert") != "" {
+		config.CACert = cfg.GetString("vault_ca_cert")
 	} else if v := os.Getenv("VAULT_CACERT"); v != "" {
 		config.CACert = v
 	}
 
-	if viper.IsSet("vault_ca_path") && viper.GetString("vault_ca_path") != "" {
-		config.CAPath = viper.GetString("vault_ca_path")
+	if cfg.IsSet("vault_ca_path") && cfg.GetString("vault_ca_path") != "" {
+		config.CAPath = cfg.GetString("vault_ca_path")
 	} else if v := os.Getenv("VAULT_CAPATH"); v != "" {
 		config.CAPath = v
 	}
 
-	if viper.IsSet("vault_client_cert") && viper.GetString("vault_client_cert") != "" {
-		config.ClientCert = viper.GetString("vault_client_cert")
+	if cfg.IsSet("vault_client_cert") && cfg.GetString("vault_client_cert") != "" {
+		config.ClientCert = cfg.GetString("vault_client_cert")
 	} else if v := os.Getenv("VAULT_CLIENT_CERT"); v != "" {
 		config.ClientCert = v
 	}
 
-	if viper.IsSet("vault_client_key") && viper.GetString("vault_client_key") != "" {
-		config.ClientKey = viper.GetString("vault_client_key")
+	if cfg.IsSet("vault_client_key") && cfg.GetString("vault_client_key") != "" {
+		config.ClientKey = cfg.GetString("vault_client_key")
 	} else if v := os.Getenv("VAULT_CLIENT_KEY"); v != "" {
 		config.ClientKey = v
 	}
 
-	if viper.IsSet("vault_skip_verify") {
-		config.Insecure = viper.GetBool("vault_skip_verify")
+	if cfg.IsSet("vault_skip_verify") {
+		config.Insecure = cfg.GetBool("vault_skip_verify")
 	} else if v := os.Getenv("VAULT_SKIP_VERIFY"); v != "" {
 		var err error
 		var envInsecure bool

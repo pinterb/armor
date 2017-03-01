@@ -66,14 +66,20 @@ func HealthzHandler(w http.ResponseWriter, r *http.Request) {
 
 // ReadinessHandler responds to readiness check requests.
 func ReadinessHandler(w http.ResponseWriter, r *http.Request) {
-	// Really just testing the connection to our Vault instance
-	err := vaulthealth()
-	if err != nil {
-		logger.Log("msg", "vault readiness check failed")
+
+	var err error
+	if err = backendDataHealth(logger); err != nil {
+		logger.Log("msg", "backend data readiness check failed")
 		SetReadinessStatus(http.StatusServiceUnavailable)
+
 	} else if err = policyDirHealth(logger); err != nil {
 		logger.Log("msg", "file system readiness check failed")
 		SetReadinessStatus(http.StatusServiceUnavailable)
+
+	} else if err = vaulthealth(); err != nil { // Really just testing the connection to our Vault instance
+		logger.Log("msg", "vault readiness check failed")
+		SetReadinessStatus(http.StatusServiceUnavailable)
+
 	} else {
 		SetReadinessStatus(http.StatusOK)
 	}

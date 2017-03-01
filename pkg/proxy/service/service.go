@@ -6,14 +6,17 @@ package service
 import (
 	"errors"
 	"fmt"
-	"os"
-	"strconv"
-
+	dbackend "github.com/cdwlabs/armor/pkg/backend/data"
 	"github.com/cdwlabs/armor/pkg/config"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/metrics"
 	vaultapi "github.com/hashicorp/vault/api"
+	"os"
+	"strconv"
+	"time"
+
 	"golang.org/x/net/context"
+	"gopkg.in/go-playground/validator.v9"
 )
 
 // Service describes the service proxy to Vault.
@@ -27,14 +30,16 @@ type Service interface {
 
 // InitOptions maps to InitRequest structs in Vault.
 type InitOptions struct {
-	SecretShares      int      `json:"secret_shares"`
-	SecretThreshold   int      `json:"secret_threshold"`
-	StoredShares      int      `json:"stored_shares"`
-	PGPKeys           []string `json:"pgp_keys"`
-	RecoveryShares    int      `json:"recovery_shares"`
-	RecoveryThreshold int      `json:"recovery_threshold"`
-	RecoveryPGPKeys   []string `json:"recovery_pgp_keys"`
-	RootTokenPGPKey   string   `json:"root_token_pgp_key"`
+	SecretShares          int      `json:"secret_shares" validate:"required,gte=1,lte=10"`
+	SecretThreshold       int      `json:"secret_threshold"`
+	StoredShares          int      `json:"stored_shares"`
+	PGPKeys               []string `json:"pgp_keys"`
+	RecoveryShares        int      `json:"recovery_shares"`
+	RecoveryThreshold     int      `json:"recovery_threshold"`
+	RecoveryPGPKeys       []string `json:"recovery_pgp_keys"`
+	RootTokenPGPKey       string   `json:"root_token_pgp_key"`
+	RootTokenHolderEmail  string   `json:"root_token_holder_email" validate:"required,email"` // recipient of the root token
+	SecretKeyHolderEmails []string `json:"secret_key_holder_emails" validate:"required"`      // recipients of the secret keys used for unsealing
 }
 
 // InitKeys is the result of successfully initializing a Vault instance.
@@ -122,6 +127,11 @@ func (s proxyService) InitStatus(_ context.Context) (bool, error) {
 
 // Init implements Service
 func (s proxyService) Init(_ context.Context, opts InitOptions) (InitKeys, error) {
+	err := opts.validate()
+	if err != nil {
+		return InitKeys{}, err
+	}
+
 	client, err := NewVaultClient()
 	if err != nil {
 		return InitKeys{}, err
@@ -149,6 +159,36 @@ func (s proxyService) Init(_ context.Context, opts InitOptions) (InitKeys, error
 		RecoveryKeys:    resp.RecoveryKeys,
 		RecoveryKeysB64: resp.RecoveryKeysB64,
 		RootToken:       resp.RootToken,
+	}
+
+	// current timestamp
+	t := time.Now()
+	rfc := t.Format(time.RFC3339)
+
+	// persist the root token holder
+	tokenHolder := dbackend.NewTokenHolder()
+	tokenHolder.Email = opts.RootTokenHolderEmail
+	tokenHolder.Token = resp.RootToken
+	tokenHolder.TokenType = dbackend.RootTokenType
+	tokenHolder.DateCreated = rfc
+	tokenHolder.DateInitialized = rfc
+	err = tokenHolder.PutItem()
+	if err != nil {
+		return initResp, err
+	}
+
+	// persist each secret key
+	for i, v := range resp.Keys {
+		tokenHolder := dbackend.NewTokenHolder()
+		tokenHolder.Email = opts.SecretKeyHolderEmails[i]
+		tokenHolder.Token = v
+		tokenHolder.TokenType = dbackend.UnsealTokenType
+		tokenHolder.DateCreated = rfc
+		tokenHolder.DateInitialized = rfc
+		err = tokenHolder.PutItem()
+		if err != nil {
+			return initResp, err
+		}
 	}
 
 	return initResp, err
@@ -244,6 +284,43 @@ func (s proxyService) Configure(_ context.Context, opts ConfigOptions) (ConfigSt
 
 	state, err := cfgexpanded.handleRequests(client)
 	return state, err
+}
+
+func (opts *InitOptions) validate() error {
+	validate := config.Validator()
+	validate.RegisterStructValidation(initOptionsStructLevelValidation, InitOptions{})
+	err := validate.Struct(opts)
+
+	if err != nil {
+		validationerr := ""
+		for _, err := range err.(validator.ValidationErrors) {
+			//fmt.Printf("Error: ActualTag: %s", err.ActualTag())
+			//fmt.Printf("Error: Field: %s", err.Field())
+			//fmt.Printf("Error: Kind: %s", err.Kind())
+			//fmt.Printf("Error: Namespace: %s", err.Namespace())
+			//fmt.Printf("Error: Param: %s", err.Param())
+			//fmt.Printf("Error: StructNamespace: %s", err.StructNamespace())
+			//fmt.Printf("Error: StructField: %s", err.StructField())
+			//fmt.Printf("Error: Tag: %s", err.Tag())
+			validationerr = fmt.Sprintf("%s validation failed on '%s' check", err.Namespace(), err.Tag())
+			break
+		}
+
+		if validationerr != "" {
+			return fmt.Errorf(validationerr)
+		}
+		return fmt.Errorf("Invalid init option(s)")
+	}
+	return nil
+}
+
+func initOptionsStructLevelValidation(sl validator.StructLevel) {
+
+	opts := sl.Current().Interface().(InitOptions)
+
+	if opts.SecretShares > 0 && len(opts.SecretKeyHolderEmails) != opts.SecretShares {
+		sl.ReportError(opts.SecretKeyHolderEmails, "SecretKeyHolderEmails", "secretholders", "secretholders", "")
+	}
 }
 
 // NewVaultClient creates a Vault client by starting with Vault's DefaultConfig.

@@ -147,14 +147,16 @@ func EncodeInitStatusRequest(_ context.Context, request interface{}) (interface{
 func DecodeInitRequest(_ context.Context, grpcReq interface{}) (interface{}, error) {
 	req := grpcReq.(*pb.InitRequest)
 	opts := service.InitOptions{
-		SecretShares:      int(req.SecretShares),
-		SecretThreshold:   int(req.SecretThreshold),
-		StoredShares:      int(req.StoredShares),
-		PGPKeys:           req.PgpKeys,
-		RecoveryShares:    int(req.RecoveryShares),
-		RecoveryThreshold: int(req.RecoveryThreshold),
-		RecoveryPGPKeys:   req.RecoveryPgpKeys,
-		RootTokenPGPKey:   req.RootTokenPgpKey,
+		SecretShares:          int(req.SecretShares),
+		SecretThreshold:       int(req.SecretThreshold),
+		StoredShares:          int(req.StoredShares),
+		PGPKeys:               req.PgpKeys,
+		RecoveryShares:        int(req.RecoveryShares),
+		RecoveryThreshold:     int(req.RecoveryThreshold),
+		RecoveryPGPKeys:       req.RecoveryPgpKeys,
+		RootTokenPGPKey:       req.RootTokenPgpKey,
+		RootTokenHolderEmail:  req.RootTokenHolderEmail,
+		SecretKeyHolderEmails: req.SecretKeyHolderEmails,
 	}
 	return &endpoints.InitRequest{Opts: opts}, nil
 }
@@ -196,14 +198,16 @@ func EncodeInitResponse(_ context.Context, response interface{}) (interface{}, e
 func EncodeInitRequest(_ context.Context, request interface{}) (interface{}, error) {
 	req := request.(endpoints.InitRequest)
 	return &pb.InitRequest{
-		SecretShares:      uint32(req.Opts.SecretShares),
-		SecretThreshold:   uint32(req.Opts.SecretThreshold),
-		StoredShares:      uint32(req.Opts.StoredShares),
-		PgpKeys:           req.Opts.PGPKeys,
-		RecoveryShares:    uint32(req.Opts.RecoveryShares),
-		RecoveryThreshold: uint32(req.Opts.RecoveryThreshold),
-		RecoveryPgpKeys:   req.Opts.RecoveryPGPKeys,
-		RootTokenPgpKey:   req.Opts.RootTokenPGPKey,
+		SecretShares:          uint32(req.Opts.SecretShares),
+		SecretThreshold:       uint32(req.Opts.SecretThreshold),
+		StoredShares:          uint32(req.Opts.StoredShares),
+		PgpKeys:               req.Opts.PGPKeys,
+		RecoveryShares:        uint32(req.Opts.RecoveryShares),
+		RecoveryThreshold:     uint32(req.Opts.RecoveryThreshold),
+		RecoveryPgpKeys:       req.Opts.RecoveryPGPKeys,
+		RootTokenPgpKey:       req.Opts.RootTokenPGPKey,
+		RootTokenHolderEmail:  req.Opts.RootTokenHolderEmail,
+		SecretKeyHolderEmails: req.Opts.SecretKeyHolderEmails,
 	}, nil
 }
 

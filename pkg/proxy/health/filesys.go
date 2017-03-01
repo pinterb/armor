@@ -3,16 +3,16 @@ package health
 import (
 	"errors"
 	"fmt"
+	"github.com/cdwlabs/armor/pkg/config"
 	"github.com/go-kit/kit/log"
 	"os"
-
-	"github.com/spf13/viper"
 )
 
 func policyDirHealth(logger log.Logger) error {
+	cfg := config.Config()
 
-	if viper.IsSet("policy_config_dir") && viper.GetString("policy_config_dir") != "" {
-		policydir := viper.GetString("policy_config_dir")
+	if cfg.IsSet("policy_config_dir") && cfg.GetString("policy_config_dir") != "" {
+		policydir := cfg.GetString("policy_config_dir")
 		_, err := os.Stat(policydir)
 		if os.IsNotExist(err) {
 			logger.Log("msg", fmt.Sprintf("creating missing policy download destination directory: %s", policydir))
