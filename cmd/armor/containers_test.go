@@ -35,12 +35,12 @@ var (
 	dockerEndpoint string
 
 	VaultImageName = "pinterb/vault"
-	VaultImageTag  = "0.6.2"
+	VaultImageTag  = "0.6.5"
 
 	// VaultDisableMlock if true, this will disable the server from executing the
 	// mlock syscall to prevent memory from being swapped to disk. This is not
 	// recommended for production!
-	VaultDisableMlock = false
+	VaultDisableMlock = true
 	VaultDisableCache = false
 
 	VaultMaxLeaseTTL    = 32 * 24 * time.Hour
@@ -229,7 +229,7 @@ func NewTestContainers() (*TestContainers, error) {
 			Volumes:      vols,
 			Mounts:       mounts,
 			ExposedPorts: exposedVaultPort,
-			Env:          []string{fmt.Sprintf("VAULT_LOCAL_CONFIG=%s", genVaultConfig), "VAULT_CACERT=/vault/tls/ca-cert.pem"},
+			Env:          []string{fmt.Sprintf("VAULT_LOCAL_CONFIG=%s", genVaultConfig), "VAULT_CACERT=/vault/tls/ca-cert.pem", "SKIP_SETCAP=yep"},
 			Cmd:          []string{"server", "-log-level=debug"},
 		},
 		HostConfig: &hostConfig,

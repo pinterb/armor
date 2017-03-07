@@ -15,7 +15,7 @@ readonly PROJECT_ROOT=$(cd $(git rev-parse --show-cdup) && pwd)
 [[ -f "$PROGDIR/utils.sh" ]] && source "$PROGDIR/utils.sh"
 
 DEMO_VAULT_IMAGE_NAME=${DEMO_VAULT_IMAGE_NAME:-'pinterb/vault'}
-DEMO_VAULT_IMAGE_TAG=${DEMO_VAULT_IMAGE_TAG:-'0.6.2'}
+DEMO_VAULT_IMAGE_TAG=${DEMO_VAULT_IMAGE_TAG:-'0.6.5'}
 DEMO_VAULT_CONTAINER_NAME=${DEMO_VAULT_CONTAINER_NAME:-'demo_vault'}
 DEMO_VAULT_CONFIG_DIR=${DEMO_VAULT_CONFIG_DIR:-"$PROGDIR/vconfig"}
 #DEMO_VAULT_TLS_DIR=${DEMO_VAULT_TLS_DIR:-"$PROJECT_ROOT/cmd/armor/test-fixtures/keys"}
@@ -28,6 +28,7 @@ vault_up()
     --name $DEMO_VAULT_CONTAINER_NAME \
     -p 8200:8200 \
     -e "VAULT_CACERT=/vault/tls/ca-cert.pem" \
+    -e "SKIP_SETCAP=yep" \
     -v $DEMO_VAULT_CONFIG_DIR:/vault/config \
     -v $DEMO_VAULT_TLS_DIR:/vault/tls \
     $DEMO_VAULT_IMAGE_NAME:$DEMO_VAULT_IMAGE_TAG server
